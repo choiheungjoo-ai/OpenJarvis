@@ -5,11 +5,11 @@ web, or mobile). Keep this CLI focused on operations: DB migration, persona
 seeding, vault indexing, telemetry inspection, etc.
 
 Implementation note: a click ``group`` is used so subcommands can be added in
-later steps (1.7 adds ``init`` / ``db`` / ``personas`` / ``users`` / ``seed``).
+later steps (1.7 adds ``init`` / ``personas`` / ``users`` / ``seed``).
 
-CLI logic stays thin. Real work happens in ``newton.config`` / future
-``newton.core.*`` so the same operations can be invoked from voice, web, or
-MCP later without duplicating logic.
+CLI logic stays thin. Real work happens in ``newton.config`` / ``newton.db`` /
+future ``newton.core.*`` so the same operations can be invoked from voice,
+web, or MCP later without duplicating logic.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from rich.table import Table
 
 from newton import __version__
 from newton.config import ConfigError, load_config
+from newton.db import DataError, init_db, migration_status
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Root group
@@ -137,9 +138,116 @@ def config_show(as_json: bool) -> None:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# db group  —  database / migrations
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def db() -> None:
+    """Manage Newton's database (migrations, status)."""
+
+
+@db.command("migrate")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit JSON: { applied: [...], already_applied: [...] }",
+)
+def db_migrate(as_json: bool) -> None:
+    """Apply any pending migrations.  Idempotent — safe to rerun."""
+    console = Console()
+
+    try:
+        # Snapshot before so we can show what was already done vs what's new.
+        before = migration_status()
+        already = list(before.applied)
+        applied_now = init_db()
+    except DataError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {"applied": applied_now, "already_applied": already},
+                indent=2,
+            )
+        )
+        return
+
+    if applied_now:
+        for v in applied_now:
+            console.print(f"[green]✓[/green] applied migration {v:03d}")
+    else:
+        console.print("[dim]already up to date[/dim]")
+        if already:
+            console.print(f"[dim]applied versions: {already}[/dim]")
+
+
+@db.command("status")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit JSON: { applied: [...], pending: [...], up_to_date: bool }",
+)
+def db_status(as_json: bool) -> None:
+    """Show applied and pending migrations.  Does not mutate."""
+    try:
+        s = migration_status()
+    except DataError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "applied": s.applied,
+                    "pending": [m.name for m in s.pending],
+                    "up_to_date": s.is_up_to_date,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    console = Console()
+    table = Table(
+        title="Migrations",
+        show_header=True,
+        header_style="bold",
+        title_style="bold",
+    )
+    table.add_column("version", style="cyan", justify="right")
+    table.add_column("status")
+    table.add_column("filename")
+
+    # Applied rows first.  We only have filenames for *pending* migrations
+    # in MigrationStatus; for applied versions we just show the version
+    # number — the SQL files may not even exist on disk any more in a
+    # restored deployment.
+    for v in s.applied:
+        table.add_row(f"{v:03d}", "[green]applied[/green]", "")
+
+    for m in s.pending:
+        table.add_row(f"{m.version:03d}", "[yellow]pending[/yellow]", m.name)
+
+    console.print(table)
+
+    if s.is_up_to_date:
+        console.print("[dim]up to date[/dim]")
+    else:
+        console.print(
+            f"[yellow]{len(s.pending)} pending migration(s)[/yellow] — "
+            f"run [bold]newton db migrate[/bold]"
+        )
+
+
 # Future subcommands (added in Step 1.7):
-#   cli.add_command(init_cmd)        # newton init
-#   cli.add_command(db_group)        # newton db migrate / status
+#   cli.add_command(init_cmd)        # newton init  (migrate + seed)
 #   cli.add_command(personas_group)  # newton personas list / show
 #   cli.add_command(users_group)     # newton users list / register
 #   cli.add_command(seed_cmd)        # newton seed

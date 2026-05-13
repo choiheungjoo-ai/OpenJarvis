@@ -35,6 +35,7 @@ dependencies = [
     "tomlkit>=0.12",
     "pyyaml>=6",
     "pydantic>=2",
+    "sqlalchemy>=2",
 ]
 
 [project.optional-dependencies]
