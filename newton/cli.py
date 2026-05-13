@@ -7,10 +7,11 @@ seeding, vault indexing, telemetry inspection, etc.
 Command tree
 ------------
     newton
-    ├── config show [--json]
+    ├── status        [--json]   # snapshot of DB + personas + users + config
+    ├── config show   [--json]
     ├── db
-    │   ├── migrate [--json]
-    │   └── status  [--json]
+    │   ├── migrate   [--json]
+    │   └── status    [--json]
     ├── personas list [--json]
     ├── users list    [--json]
     ├── seed          [--json]
@@ -417,6 +418,161 @@ def init_cmd(as_json: bool) -> None:
     else:
         console.print("[dim]migrations: already up to date[/dim]")
     _emit_seed_report(report, as_json=False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# status  —  one-shot snapshot of DB + personas + users + config
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cli.command("status")
+@click.option("--json", "as_json", is_flag=True)
+def status_cmd(as_json: bool) -> None:
+    """Show a snapshot of Newton's data and configuration state.
+
+    Read-only — never mutates.  Useful as a first debugging step before
+    anything else, or after ``newton init`` to confirm everything is in place.
+    """
+    from sqlalchemy import select
+
+    from newton.db import _db_path  # internal helper — fine inside our CLI
+
+    # ── Database ──
+    db_path = _db_path()
+    db_size_bytes = db_path.stat().st_size if db_path.exists() else 0
+    try:
+        mig = migration_status()
+    except DataError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    # ── Personas + Users (only if DB has tables) ──
+    persona_rows: list[tuple[Persona, str | None]] = []
+    user_rows: list[User] = []
+    if mig.applied:
+        persona_rows = _personas_with_owner_displays()
+        with get_session() as session:
+            user_rows = list(session.scalars(select(User)).all())
+
+    # ── Config ──
+    try:
+        cfg = load_config()
+        cfg_summary = {
+            "active_profile": cfg.identity.active_profile,
+            "guest_mode": cfg.identity.guest_mode_enabled,
+            "fallback_methods": (
+                list(cfg.identity.fallback.methods)
+                if cfg.identity.fallback.enabled
+                else []
+            ),
+        }
+        cfg_ok = True
+    except ConfigError as e:
+        cfg_summary = {"error": str(e)}
+        cfg_ok = False
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "version": __version__,
+                    "database": {
+                        "path": str(db_path),
+                        "size_bytes": db_size_bytes,
+                        "migrations_applied": mig.applied,
+                        "migrations_pending": [m.name for m in mig.pending],
+                        "schema_up_to_date": mig.is_up_to_date,
+                    },
+                    "personas": [
+                        {
+                            "persona_id": p.persona_id,
+                            "display_name": p.display_name,
+                            "owner_user_id": p.owner_user_id,
+                            "owner_display_name": owner_display,
+                            "is_public": bool(p.is_public),
+                            "is_default": bool(p.is_default),
+                        }
+                        for p, owner_display in persona_rows
+                    ],
+                    "users": [
+                        {
+                            "user_id": u.user_id,
+                            "display_name": u.display_name,
+                            "default_persona_id": u.default_persona_id,
+                        }
+                        for u in user_rows
+                    ],
+                    "config": cfg_summary,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    # ── Human output ──
+    console = Console()
+    console.print(f"[bold]Newton {__version__}[/bold]\n")
+
+    # Database
+    console.print("[bold]Database[/bold]")
+    console.print(f"  path:        {db_path}")
+    size_str = f"{db_size_bytes / 1024:.1f} KB" if db_size_bytes else "0 KB"
+    if db_size_bytes == 0:
+        size_str += " [dim](not initialized)[/dim]"
+    console.print(f"  size:        {size_str}")
+    applied_str = (
+        ", ".join(f"{v:03d}" for v in mig.applied) if mig.applied else "[dim]none[/dim]"
+    )
+    console.print(f"  migrations:  {applied_str}")
+    if mig.is_up_to_date:
+        console.print("  schema:      [green]up to date[/green]")
+    else:
+        console.print(
+            f"  schema:      [yellow]{len(mig.pending)} pending — "
+            f"run 'newton db migrate'[/yellow]"
+        )
+    console.print()
+
+    # Personas
+    console.print(f"[bold]Personas ({len(persona_rows)})[/bold]")
+    if persona_rows:
+        for p, owner_display in persona_rows:
+            tags: list[str] = []
+            if p.is_public:
+                tags.append("public")
+            if p.is_default:
+                tags.append("default")
+            if p.owner_user_id:
+                tags.append(f"owner: {owner_display or p.owner_user_id}")
+            console.print(f"  {p.persona_id:8s}{', '.join(tags)}")
+    else:
+        console.print("  [dim]none — run 'newton seed' or 'newton init'[/dim]")
+    console.print()
+
+    # Users
+    console.print(f"[bold]Users ({len(user_rows)})[/bold]")
+    if user_rows:
+        for u in user_rows:
+            default = u.default_persona_id or "—"
+            console.print(f"  {u.user_id:5s}{u.display_name:9s}default: {default}")
+    else:
+        console.print("  [dim]none — run 'newton seed' or 'newton init'[/dim]")
+    console.print()
+
+    # Config
+    console.print("[bold]Config[/bold]")
+    if cfg_ok:
+        console.print("  source:         config/personas.yaml")
+        console.print(f"  active_profile: {cfg_summary['active_profile']}")
+        console.print(
+            f"  guest_mode:     {'on' if cfg_summary['guest_mode'] else 'off'}"
+        )
+        fb = cfg_summary["fallback_methods"]
+        fb_str = ", ".join(fb) if fb else "disabled"
+        console.print(f"  fallback:       {fb_str}")
+    else:
+        console.print(f"  [red]error:[/red] {cfg_summary['error']}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
