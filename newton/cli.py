@@ -4,12 +4,21 @@ Used by ``sir`` (and not by end users — end users speak to Newton via voice,
 web, or mobile). Keep this CLI focused on operations: DB migration, persona
 seeding, vault indexing, telemetry inspection, etc.
 
-Implementation note: a click ``group`` is used so subcommands can be added in
-later steps (1.7 adds ``init`` / ``personas`` / ``users`` / ``seed``).
+Command tree
+------------
+    newton
+    ├── config show [--json]
+    ├── db
+    │   ├── migrate [--json]
+    │   └── status  [--json]
+    ├── personas list [--json]
+    ├── users list    [--json]
+    ├── seed          [--json]
+    └── init          [--json]   # migrate + seed in one shot
 
-CLI logic stays thin. Real work happens in ``newton.config`` / ``newton.db`` /
-future ``newton.core.*`` so the same operations can be invoked from voice,
-web, or MCP later without duplicating logic.
+CLI logic stays thin.  Real work happens in ``newton.config`` / ``newton.db``
+/ ``newton.seed`` so the same operations can be invoked from voice, web, or
+MCP later without duplicating logic.
 """
 
 from __future__ import annotations
@@ -23,7 +32,9 @@ from rich.table import Table
 
 from newton import __version__
 from newton.config import ConfigError, load_config
-from newton.db import DataError, init_db, migration_status
+from newton.db import DataError, get_session, init_db, migration_status
+from newton.models import Persona, User
+from newton.seed import SeedReport, seed_all
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Root group
@@ -42,13 +53,12 @@ def cli(ctx: click.Context) -> None:
     Operator CLI. End users interact with Newton via voice / web / mobile,
     not this command line.
     """
-    # No subcommand → show help. Avoids the "did nothing" feeling.
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# config group  —  inspect Newton's loaded configuration
+# config group
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -73,8 +83,6 @@ def config_show(as_json: bool) -> None:
         sys.exit(1)
 
     if as_json:
-        # ``model_dump`` honours pydantic's serialization; mode='json' keeps
-        # types like nested models flattened to JSON-friendly dicts.
         click.echo(
             json.dumps(cfg.model_dump(mode="json"), indent=2, ensure_ascii=False)
         )
@@ -82,20 +90,13 @@ def config_show(as_json: bool) -> None:
 
     console = Console()
 
-    # ── Personas table ──
-    p_table = Table(
-        title="Personas",
-        show_header=True,
-        header_style="bold",
-        title_style="bold",
-    )
+    p_table = Table(title="Personas", header_style="bold", title_style="bold")
     p_table.add_column("id", style="cyan")
     p_table.add_column("display", style="white")
     p_table.add_column("owner")
     p_table.add_column("public", justify="center")
     p_table.add_column("default", justify="center")
     p_table.add_column("color", justify="center")
-
     for pid, p in cfg.personas.items():
         p_table.add_row(
             pid,
@@ -107,18 +108,11 @@ def config_show(as_json: bool) -> None:
         )
     console.print(p_table)
 
-    # ── Identity policy ──
-    i_table = Table(
-        title="Identity policy",
-        show_header=True,
-        header_style="bold",
-        title_style="bold",
-    )
+    i_table = Table(title="Identity policy", header_style="bold", title_style="bold")
     i_table.add_column("profile", style="cyan")
     i_table.add_column("max_retries", justify="right")
     i_table.add_column("threshold", justify="right")
     i_table.add_column("active", justify="center")
-
     for name, rp in cfg.identity.retry_profiles.items():
         i_table.add_row(
             name,
@@ -128,7 +122,6 @@ def config_show(as_json: bool) -> None:
         )
     console.print(i_table)
 
-    # ── One-line summary ──
     fb = cfg.identity.fallback
     fb_str = ", ".join(fb.methods) if fb.enabled and fb.methods else "disabled"
     console.print(
@@ -139,7 +132,7 @@ def config_show(as_json: bool) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# db group  —  database / migrations
+# db group
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -149,18 +142,11 @@ def db() -> None:
 
 
 @db.command("migrate")
-@click.option(
-    "--json",
-    "as_json",
-    is_flag=True,
-    help="Emit JSON: { applied: [...], already_applied: [...] }",
-)
+@click.option("--json", "as_json", is_flag=True)
 def db_migrate(as_json: bool) -> None:
     """Apply any pending migrations.  Idempotent — safe to rerun."""
     console = Console()
-
     try:
-        # Snapshot before so we can show what was already done vs what's new.
         before = migration_status()
         already = list(before.applied)
         applied_now = init_db()
@@ -170,10 +156,7 @@ def db_migrate(as_json: bool) -> None:
 
     if as_json:
         click.echo(
-            json.dumps(
-                {"applied": applied_now, "already_applied": already},
-                indent=2,
-            )
+            json.dumps({"applied": applied_now, "already_applied": already}, indent=2)
         )
         return
 
@@ -187,12 +170,7 @@ def db_migrate(as_json: bool) -> None:
 
 
 @db.command("status")
-@click.option(
-    "--json",
-    "as_json",
-    is_flag=True,
-    help="Emit JSON: { applied: [...], pending: [...], up_to_date: bool }",
-)
+@click.option("--json", "as_json", is_flag=True)
 def db_status(as_json: bool) -> None:
     """Show applied and pending migrations.  Does not mutate."""
     try:
@@ -215,26 +193,14 @@ def db_status(as_json: bool) -> None:
         return
 
     console = Console()
-    table = Table(
-        title="Migrations",
-        show_header=True,
-        header_style="bold",
-        title_style="bold",
-    )
+    table = Table(title="Migrations", header_style="bold", title_style="bold")
     table.add_column("version", style="cyan", justify="right")
     table.add_column("status")
     table.add_column("filename")
-
-    # Applied rows first.  We only have filenames for *pending* migrations
-    # in MigrationStatus; for applied versions we just show the version
-    # number — the SQL files may not even exist on disk any more in a
-    # restored deployment.
     for v in s.applied:
         table.add_row(f"{v:03d}", "[green]applied[/green]", "")
-
     for m in s.pending:
         table.add_row(f"{m.version:03d}", "[yellow]pending[/yellow]", m.name)
-
     console.print(table)
 
     if s.is_up_to_date:
@@ -246,16 +212,215 @@ def db_status(as_json: bool) -> None:
         )
 
 
-# Future subcommands (added in Step 1.7):
-#   cli.add_command(init_cmd)        # newton init  (migrate + seed)
-#   cli.add_command(personas_group)  # newton personas list / show
-#   cli.add_command(users_group)     # newton users list / register
-#   cli.add_command(seed_cmd)        # newton seed
+# ─────────────────────────────────────────────────────────────────────────────
+# personas / users — read-only listings
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _personas_with_owner_displays() -> list[tuple[Persona, str | None]]:
+    """Return personas paired with their owner's display_name (or None)."""
+    from sqlalchemy import select
+
+    with get_session() as session:
+        personas = list(session.scalars(select(Persona)).all())
+        owner_ids = {p.owner_user_id for p in personas if p.owner_user_id}
+        if owner_ids:
+            users = {
+                u.user_id: u.display_name
+                for u in session.scalars(
+                    select(User).where(User.user_id.in_(owner_ids))
+                )
+            }
+        else:
+            users = {}
+        return [
+            (p, users.get(p.owner_user_id) if p.owner_user_id else None)
+            for p in personas
+        ]
+
+
+@cli.group()
+def personas() -> None:
+    """Inspect personas in the database."""
+
+
+@personas.command("list")
+@click.option("--json", "as_json", is_flag=True)
+def personas_list(as_json: bool) -> None:
+    """List personas (after they've been seeded)."""
+    rows = _personas_with_owner_displays()
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "persona_id": p.persona_id,
+                        "display_name": p.display_name,
+                        "owner_user_id": p.owner_user_id,
+                        "owner_display_name": owner_display,
+                        "is_public": bool(p.is_public),
+                        "is_default": bool(p.is_default),
+                        "color": p.color,
+                    }
+                    for p, owner_display in rows
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    if not rows:
+        click.secho("no personas — run 'newton seed' or 'newton init'", fg="yellow")
+        return
+
+    for p, owner_display in rows:
+        tags: list[str] = []
+        if p.is_public:
+            tags.append("public")
+        if p.is_default:
+            tags.append("default")
+        if p.owner_user_id:
+            who = owner_display or p.owner_user_id
+            tags.append(f"owner: {who}")
+        suffix = f" ({', '.join(tags)})" if tags else ""
+        click.echo(f"{p.persona_id}\t{suffix}")
+
+
+@cli.group()
+def users() -> None:
+    """Inspect registered users."""
+
+
+@users.command("list")
+@click.option("--json", "as_json", is_flag=True)
+def users_list(as_json: bool) -> None:
+    """List registered users (after they've been seeded)."""
+    from sqlalchemy import select
+
+    with get_session() as session:
+        user_rows = list(session.scalars(select(User)).all())
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "user_id": u.user_id,
+                        "display_name": u.display_name,
+                        "default_persona_id": u.default_persona_id,
+                        "retry_profile": u.retry_profile,
+                    }
+                    for u in user_rows
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    if not user_rows:
+        click.secho("no users — run 'newton seed' or 'newton init'", fg="yellow")
+        return
+
+    for u in user_rows:
+        default = u.default_persona_id or "—"
+        click.echo(f"{u.user_id}\t{u.display_name}\tdefault persona: {default}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Entry point used by ``newton`` console script (wired up in Step 1.2d via
-# pyproject.toml). Also works for ``python -m newton.cli``.
+# seed / init
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _emit_seed_report(report: SeedReport, as_json: bool) -> None:
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "personas_added": report.personas_added,
+                    "users_added": report.users_added,
+                    "links_added": [list(t) for t in report.links_added],
+                },
+                indent=2,
+            )
+        )
+        return
+
+    console = Console()
+    if report.is_empty:
+        console.print("[dim]already seeded — nothing to do[/dim]")
+        return
+
+    if report.personas_added:
+        console.print(
+            f"[green]✓[/green] seeded {len(report.personas_added)} "
+            f"persona(s): {', '.join(report.personas_added)}"
+        )
+    if report.users_added:
+        console.print(
+            f"[green]✓[/green] seeded {len(report.users_added)} "
+            f"user(s): {', '.join(report.users_added)}"
+        )
+    if report.links_added:
+        pairs = ", ".join(f"{u}→{p}" for u, p in report.links_added)
+        console.print(
+            f"[green]✓[/green] linked {len(report.links_added)} user/persona "
+            f"default(s): {pairs}"
+        )
+
+
+@cli.command("seed")
+@click.option("--json", "as_json", is_flag=True)
+def seed_cmd(as_json: bool) -> None:
+    """Insert initial personas and users.  Idempotent."""
+    try:
+        with get_session() as session:
+            report = seed_all(session)
+    except (ConfigError, DataError) as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+    _emit_seed_report(report, as_json)
+
+
+@cli.command("init")
+@click.option("--json", "as_json", is_flag=True)
+def init_cmd(as_json: bool) -> None:
+    """Apply migrations and seed initial data.  Idempotent — safe to rerun."""
+    try:
+        applied = init_db()
+        with get_session() as session:
+            report = seed_all(session)
+    except (ConfigError, DataError) as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "migrations_applied": applied,
+                    "personas_added": report.personas_added,
+                    "users_added": report.users_added,
+                    "links_added": [list(t) for t in report.links_added],
+                },
+                indent=2,
+            )
+        )
+        return
+
+    console = Console()
+    if applied:
+        for v in applied:
+            console.print(f"[green]✓[/green] applied migration {v:03d}")
+    else:
+        console.print("[dim]migrations: already up to date[/dim]")
+    _emit_seed_report(report, as_json=False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
 
