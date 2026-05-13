@@ -1,0 +1,15 @@
+# Newton v4 — 필수 Ollama 모델
+# preflight.sh가 이 파일을 읽어서 없는 모델을 자동 pull.
+#
+# 형식: <model_tag>  [size_GB_approx]  [# 주석]
+# size_GB_approx > 5이면 pull 전 사용자 확인 (--yes로 우회 가능)
+#
+# 블록 진행에 따라 추가됩니다. 블록 1은 최소 세트만.
+
+# 블록 1 — 최소 동작 검증용
+qwen3.5:9b           6.6   # 메인 LLM (현 시점 default)
+bge-m3:latest        1.2   # Embedding (블록 3에서 RAG)
+
+# 블록 3 이후 — 추가 예정 (지금은 주석 처리, 시점 도래 시 활성화)
+# qwen3:8b           5.2   # 빠른 LLM (intent 분류)
+# qwen3:32b          20.0  # 큰 메인 LLM (RAG 응답용, >5GB 확인 필요)

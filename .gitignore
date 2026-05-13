@@ -115,3 +115,35 @@ learning.db
 **/learning/benchmarks/
 **/teacher_traces/
 *.session.json
+
+# ─────────────────────────────────────────────
+# Newton v4 (added by Step 1.2a)
+# ─────────────────────────────────────────────
+
+# 데이터 — DB, vault, 음성/얼굴 embedding, 로그
+# 이 안의 .gitkeep만 git이 추적
+data/*
+!data/.gitkeep
+
+# Newton 임시/캐시
+newton/**/__pycache__/
+newton/**/*.pyc
+
+# 로컬 설정 오버라이드 (옵션)
+config/*.local.yaml
+config/*.local.toml
+
+# 로그
+*.log
+
+# Newton DB 백업
+*.db.bak
+*.sqlite.bak
+
+# 환경별 설정 (절대 git에 X)
+.env
+.env.local
+
+# pyproject.toml 등 설정 파일 timestamped 백업
+*.bak
+*.bak.*
