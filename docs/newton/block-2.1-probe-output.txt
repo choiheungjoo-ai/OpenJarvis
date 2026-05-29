@@ -1,0 +1,598 @@
+
+========== 0. CONTEXT ==========
+repo root : /home/user/newton-v4
+branch    : newton-main
+HEAD      : bdc6ad5 docs: English v2 of all Newton v4 design documents
+git clean : NO-DIRTY
+
+========== 0b. PACKAGE LAYOUT (top 2 levels, dirs only) ==========
+.
+./.pytest_cache
+./.pytest_cache/v
+./.ruff_cache
+./.ruff_cache/0.15.1
+./.ruff_cache/0.9.0
+./Inline
+./assets
+./config
+./configs
+./configs/openjarvis
+./data
+./deploy
+./deploy/docker
+./deploy/launchd
+./deploy/systemd
+./desktop
+./desktop/src-tauri
+./docs
+./docs/architecture
+./docs/assets
+./docs/deployment
+./docs/design
+./docs/development
+./docs/getting-started
+./docs/includes
+./docs/javascripts
+./docs/newton
+./docs/overrides
+./docs/stylesheets
+./docs/testing
+./docs/tutorials
+./docs/user-guide
+./examples
+./examples/browser_assistant
+./examples/code_companion
+./examples/daily_digest
+./examples/deep_research
+./examples/doc_qa
+./examples/messaging_hub
+./examples/multi_model_router
+./examples/scheduled_ops
+./examples/security_scanner
+./examples/twitter_bot
+./frontend
+./frontend/public
+./frontend/src
+./frontend/src-tauri
+./migrations
+./newton
+./newton/models
+./rust
+./rust/crates
+./scripts
+./scripts/install
+./scripts/mining
+./scripts/newton
+./src
+./src/openjarvis
+./tests
+./tests/a2a
+./tests/agents
+./tests/bench
+./tests/channels
+./tests/cli
+./tests/connectors
+./tests/core
+./tests/daemon
+./tests/deployment
+./tests/engine
+./tests/evals
+./tests/fixtures
+./tests/hardware
+./tests/install
+./tests/integration
+./tests/intelligence
+./tests/learning
+./tests/mcp
+./tests/memory
+./tests/mining
+./tests/newton
+./tests/operators
+./tests/prompt
+./tests/recipes
+./tests/sandbox
+./tests/scheduler
+./tests/scripts
+./tests/sdk
+./tests/security
+./tests/server
+./tests/sessions
+./tests/skills
+./tests/speech
+./tests/telemetry
+./tests/templates
+./tests/test_orchestrator_learning
+./tests/tools
+./tests/traces
+./tests/workflow
+./tools
+./tools/pearl-reference-oracle
+
+candidate OpenJarvis package dir(s):  src
+
+========== 1. DOES OPENJARVIS HAVE TOOL / FUNCTION-CALLING CODE? (item 1) ==========
+--- files whose path mentions tool/function/skill ---
+./src/openjarvis/a2a/tool.py
+./src/openjarvis/cli/_tool_names.py
+./src/openjarvis/cli/skill_cmd.py
+./src/openjarvis/cli/tool_cmd.py
+./src/openjarvis/evals/datasets/toolcall15.py
+./src/openjarvis/evals/datasets/toolorchestra.py
+./src/openjarvis/evals/scorers/toolcall15.py
+./src/openjarvis/evals/skill_benchmark.py
+./src/openjarvis/learning/agents/skill_discovery.py
+./src/openjarvis/learning/agents/skill_optimizer.py
+./src/openjarvis/learning/distillation/diagnose/tools.py
+./src/openjarvis/learning/distillation/execute/appliers/tools.py
+./src/openjarvis/scheduler/tools.py
+./src/openjarvis/skills/__init__.py
+./src/openjarvis/skills/dependency.py
+./src/openjarvis/skills/executor.py
+./src/openjarvis/skills/importer.py
+./src/openjarvis/skills/index.py
+./src/openjarvis/skills/loader.py
+./src/openjarvis/skills/manager.py
+./src/openjarvis/skills/overlay.py
+./src/openjarvis/skills/parser.py
+./src/openjarvis/skills/security.py
+./src/openjarvis/skills/sources/__init__.py
+./src/openjarvis/skills/sources/base.py
+./src/openjarvis/skills/sources/github.py
+./src/openjarvis/skills/sources/hermes.py
+./src/openjarvis/skills/sources/openclaw.py
+./src/openjarvis/skills/tool_adapter.py
+./src/openjarvis/skills/tool_translator.py
+./src/openjarvis/skills/types.py
+./src/openjarvis/tools/__init__.py
+./src/openjarvis/tools/_stubs.py
+./src/openjarvis/tools/agent_tools.py
+./src/openjarvis/tools/apply_patch.py
+./src/openjarvis/tools/audio_tool.py
+./src/openjarvis/tools/browser.py
+./src/openjarvis/tools/browser_axtree.py
+./src/openjarvis/tools/calculator.py
+./src/openjarvis/tools/channel_tools.py
+./src/openjarvis/tools/code_interpreter.py
+./src/openjarvis/tools/code_interpreter_docker.py
+./src/openjarvis/tools/db_query.py
+./src/openjarvis/tools/description_loader.py
+./src/openjarvis/tools/digest_collect.py
+./src/openjarvis/tools/file_read.py
+./src/openjarvis/tools/file_write.py
+./src/openjarvis/tools/git_tool.py
+./src/openjarvis/tools/http_request.py
+./src/openjarvis/tools/image_tool.py
+./src/openjarvis/tools/knowledge_search.py
+./src/openjarvis/tools/knowledge_sql.py
+./src/openjarvis/tools/knowledge_tools.py
+./src/openjarvis/tools/llm_tool.py
+./src/openjarvis/tools/mcp_adapter.py
+./src/openjarvis/tools/memory_manage.py
+./src/openjarvis/tools/pdf_tool.py
+./src/openjarvis/tools/repl.py
+./src/openjarvis/tools/retrieval.py
+./src/openjarvis/tools/scan_chunks.py
+./src/openjarvis/tools/shell_exec.py
+./src/openjarvis/tools/skill_manage.py
+./src/openjarvis/tools/storage/__init__.py
+./src/openjarvis/tools/storage/_stubs.py
+./src/openjarvis/tools/storage/bm25.py
+./src/openjarvis/tools/storage/chunking.py
+./src/openjarvis/tools/storage/colbert_backend.py
+./src/openjarvis/tools/storage/context.py
+./src/openjarvis/tools/storage/dense.py
+./src/openjarvis/tools/storage/embeddings.py
+./src/openjarvis/tools/storage/faiss_backend.py
+./src/openjarvis/tools/storage/hybrid.py
+./src/openjarvis/tools/storage/ingest.py
+./src/openjarvis/tools/storage/knowledge_graph.py
+./src/openjarvis/tools/storage/sqlite.py
+./src/openjarvis/tools/storage_tools.py
+./src/openjarvis/tools/templates/__init__.py
+./src/openjarvis/tools/templates/loader.py
+./src/openjarvis/tools/text_to_speech.py
+./src/openjarvis/tools/think.py
+./src/openjarvis/tools/user_profile_manage.py
+./src/openjarvis/tools/web_search.py
+./tools/pearl-reference-oracle/smoke_test.py
+
+--- class/def definitions that look tool-ish (outside newton/) ---
+./src/openjarvis/traces/collector.py:178:    def _on_tool_start(self, event: Any) -> None:
+./src/openjarvis/traces/collector.py:182:    def _on_tool_end(self, event: Any) -> None:
+./src/openjarvis/traces/analyzer.py:31:class ToolStats:
+./src/openjarvis/traces/analyzer.py:202:    def per_tool_stats(
+./src/openjarvis/engine/cloud.py:177:def _convert_tools_to_anthropic(
+./src/openjarvis/engine/cloud.py:194:def _convert_tools_to_google(
+./src/openjarvis/learning/learning_orchestrator.py:223:    def _maybe_optimize_skills(
+./src/openjarvis/learning/training/data.py:65:    def _tools_from_trace(trace: Trace) -> List[str]:
+./src/openjarvis/learning/agents/agent_evolver.py:323:class _ToolScore:
+./src/openjarvis/learning/agents/skill_discovery.py:11:class DiscoveredSkill:
+./src/openjarvis/learning/agents/skill_discovery.py:22:class SkillDiscovery:
+./src/openjarvis/learning/agents/skill_discovery.py:106:    def _extract_tool_sequence(self, trace: Any) -> List[str]:
+./src/openjarvis/learning/agents/skill_discovery.py:179:    def discovered_skills(self) -> List[DiscoveredSkill]:
+./src/openjarvis/learning/agents/skill_discovery.py:183:    def to_skill_manifests(self) -> List[Dict[str, Any]]:
+./src/openjarvis/learning/agents/skill_optimizer.py:30:class SkillOptimizationResult:
+./src/openjarvis/learning/agents/skill_optimizer.py:48:class SkillOptimizer:
+./src/openjarvis/learning/agents/skill_optimizer.py:156:    def _bucket_traces_by_skill(self, traces: List[Trace]) -> Dict[str, List[Trace]]:
+./src/openjarvis/learning/agents/skill_optimizer.py:170:    def _extract_skill_names(trace: Trace) -> List[str]:
+./src/openjarvis/learning/routing/heuristic_reward.py:10:class HeuristicRewardFunction(RewardFunction):
+./src/openjarvis/learning/routing/learned_router.py:5:class registered as ``"learned"`` in ``RouterPolicyRegistry``.
+./src/openjarvis/learning/_stubs.py:33:class RewardFunction(ABC):
+./src/openjarvis/learning/intelligence/orchestrator/environment.py:107:    def get_available_tools(self) -> List[str]:
+./src/openjarvis/learning/distillation/execute/base.py:35:    def tools_dir(self) -> Path:
+./src/openjarvis/learning/distillation/execute/base.py:79:class EditApplierRegistry:
+./src/openjarvis/learning/distillation/execute/appliers/tools.py:19:class AddToolToAgentApplier(EditApplier):
+./src/openjarvis/learning/distillation/execute/appliers/tools.py:68:class RemoveToolFromAgentApplier(EditApplier):
+./src/openjarvis/learning/distillation/execute/appliers/tools.py:112:class EditToolDescriptionApplier(EditApplier):
+./src/openjarvis/learning/distillation/diagnose/types.py:74:class ToolMeta:
+./src/openjarvis/learning/distillation/diagnose/types.py:84:class DiagnosticTool:
+./src/openjarvis/learning/distillation/diagnose/types.py:110:class ToolCallRecord:
+./src/openjarvis/learning/distillation/diagnose/tools.py:22:def build_diagnostic_tools(
+./src/openjarvis/learning/distillation/diagnose/tools.py:190:    def _get_tool_description(tool_name: str) -> str:
+./src/openjarvis/learning/distillation/diagnose/tools.py:211:    def _list_available_tools() -> str:
+./src/openjarvis/agents/rlm.py:80:class RLMAgent(ToolUsingAgent):
+./src/openjarvis/agents/operative.py:25:class OperativeAgent(ToolUsingAgent):
+./src/openjarvis/agents/native_openhands.py:57:class NativeOpenHandsAgent(ToolUsingAgent):
+./src/openjarvis/agents/native_openhands.py:141:    def _strip_tool_call_text(text: str) -> str:
+./src/openjarvis/agents/native_openhands.py:161:    def _extract_tool_call(self, text: str) -> tuple[str, str] | None:
+./src/openjarvis/agents/_stubs.py:285:class ToolUsingAgent(BaseAgent):
+./src/openjarvis/agents/executor.py:57:    def _inject_tool_deps(self, tool: Any) -> None:
+./src/openjarvis/agents/executor.py:135:        def _on_tool_start(event: Any) -> None:
+./src/openjarvis/agents/executor.py:148:        def _on_tool_end(event: Any) -> None:
+./src/openjarvis/agents/orchestrator.py:28:class OrchestratorAgent(ToolUsingAgent):
+./src/openjarvis/agents/orchestrator.py:208:    def _run_function_calling(
+./src/openjarvis/agents/orchestrator.py:286:                def _exec_tool(tc: ToolCall) -> tuple:
+./src/openjarvis/agents/deep_research.py:159:class DeepResearchAgent(ToolUsingAgent):
+./src/openjarvis/agents/deep_research.py:195:    def _extract_sources(tool_results: List[ToolResult]) -> List[str]:
+./src/openjarvis/agents/morning_digest.py:33:class MorningDigestAgent(ToolUsingAgent):
+./src/openjarvis/agents/monitor_operative.py:82:class MonitorOperativeAgent(ToolUsingAgent):
+./src/openjarvis/agents/monitor_operative.py:396:    def _extract_tool_call(text: str) -> tuple[str, str] | None:
+./src/openjarvis/agents/monitor_operative.py:497:    def _build_tool_descriptions(self) -> str:
+./src/openjarvis/agents/monitor_operative.py:544:    def _extract_and_store(self, tool_name: str, content: str) -> None:
+./src/openjarvis/agents/monitor_operative.py:569:    def _extract_causality(self, tool_name: str, content: str) -> None:
+./src/openjarvis/agents/monitor_operative.py:625:    def _store_scratchpad(self, tool_name: str, content: str) -> None:
+./src/openjarvis/agents/monitor_operative.py:642:    def _store_structured(self, tool_name: str, content: str) -> None:
+./src/openjarvis/agents/native_react.py:57:class NativeReActAgent(ToolUsingAgent):
+./src/openjarvis/agents/loop_guard.py:71:    def check_call(self, tool_name: str, arguments: str) -> LoopVerdict:
+./src/openjarvis/agents/loop_guard.py:94:    def _python_check(self, tool_name: str, arguments: str) -> LoopVerdict:
+./src/openjarvis/agents/loop_guard.py:144:    def _is_tool(msg: object) -> bool:
+./src/openjarvis/agents/loop_guard.py:234:    def _emit_triggered(self, reason_type: str, tool_name: str) -> None:
+
+========== 2. HOW ARE TOOL CALLS WIRED THROUGH THE LLM ADAPTER / OLLAMA? (item 2) ==========
+--- ollama / llm-adapter touchpoints ---
+./scripts/index_docs.py:12:Embedding model: ``nomic-embed-text`` via Ollama. Pull it with
+./scripts/index_docs.py:13:``ollama pull nomic-embed-text`` if you don't have it. Expected
+./scripts/index_docs.py:14:indexing time for the full corpus: ~30s on a warm Ollama server.
+./src/openjarvis/mining/_stubs.py:109:    hardware/engine paths (Apple Silicon, AMD, Ollama) implement this exact
+./src/openjarvis/traces/collector.py:27:        agent = OrchestratorAgent(engine, model, tools=tools, bus=bus)
+./src/openjarvis/traces/collector.py:160:                    "tool_calls": data.get("tool_calls", []),
+./src/openjarvis/telemetry/instrumented_engine.py:55:    Agents call ``engine.generate()`` normally -- they don't know
+./src/openjarvis/telemetry/instrumented_engine.py:104:                result = self._inner.generate(
+./src/openjarvis/telemetry/instrumented_engine.py:113:                result = self._inner.generate(
+./src/openjarvis/telemetry/instrumented_engine.py:121:            result = self._inner.generate(
+./src/openjarvis/telemetry/instrumented_engine.py:260:            "tool_calls": result.get("tool_calls", []),
+./src/openjarvis/telemetry/wrapper.py:24:    """Call ``engine.generate()`` and publish telemetry events on *bus*.
+./src/openjarvis/telemetry/wrapper.py:31:    result = engine.generate(
+./src/openjarvis/engine/_discovery.py:16:    "ollama": "ollama_host",
+./src/openjarvis/engine/_base.py:23:        if m.tool_calls:
+./src/openjarvis/engine/_base.py:24:            d["tool_calls"] = [
+./src/openjarvis/engine/_base.py:33:                for tc in m.tool_calls
+./src/openjarvis/engine/_base.py:44:    Ollama's ``prompt_eval_count`` may report only *newly evaluated*
+./src/openjarvis/engine/litellm.py:83:        # Extract tool_calls in flat format (id, name, arguments)
+./src/openjarvis/engine/litellm.py:84:        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
+./src/openjarvis/engine/litellm.py:85:            result["tool_calls"] = [
+./src/openjarvis/engine/litellm.py:91:                for tc in choice.message.tool_calls
+./src/openjarvis/engine/nexa_shim.py:105:            for token in llm.generate(prompt, max_tokens=req.max_tokens):
+./src/openjarvis/engine/nexa_shim.py:141:    text = llm.generate(prompt, max_tokens=req.max_tokens)
+./src/openjarvis/engine/ollama.py:1:"""Ollama inference engine backend."""
+./src/openjarvis/engine/ollama.py:26:@EngineRegistry.register("ollama")
+./src/openjarvis/engine/ollama.py:27:class OllamaEngine(InferenceEngine):
+./src/openjarvis/engine/ollama.py:28:    """Ollama backend via its native HTTP API."""
+./src/openjarvis/engine/ollama.py:30:    engine_id = "ollama"
+./src/openjarvis/engine/ollama.py:40:        # Priority: explicit host (from config.toml) > OLLAMA_HOST env var > default
+./src/openjarvis/engine/ollama.py:42:            env_host = os.environ.get("OLLAMA_HOST")
+./src/openjarvis/engine/ollama.py:46:        # Last stream usage — captured from Ollama's final chunk
+./src/openjarvis/engine/ollama.py:59:        # Ollama expects tool_call arguments as dicts, not JSON strings
+./src/openjarvis/engine/ollama.py:61:            for tc in md.get("tool_calls", []):
+./src/openjarvis/engine/ollama.py:109:                f"Ollama not reachable at {self._host}"
+./src/openjarvis/engine/ollama.py:114:                f"Ollama returned {exc.response.status_code}: {body}"
+./src/openjarvis/engine/ollama.py:141:        # Extract timing from Ollama response (nanoseconds → seconds)
+./src/openjarvis/engine/ollama.py:154:        raw_tool_calls = data.get("message", {}).get("tool_calls", [])
+./src/openjarvis/engine/ollama.py:155:        if raw_tool_calls:
+./src/openjarvis/engine/ollama.py:156:            tool_calls = []
+./src/openjarvis/engine/ollama.py:157:            for i, tc in enumerate(raw_tool_calls):
+./src/openjarvis/engine/ollama.py:162:                tool_calls.append(
+./src/openjarvis/engine/ollama.py:173:            result["tool_calls"] = tool_calls
+./src/openjarvis/engine/ollama.py:225:                f"Ollama not reachable at {self._host}"
+./src/openjarvis/engine/ollama.py:237:        """Yield ``StreamChunk``s including tool_calls.
+./src/openjarvis/engine/ollama.py:241:        ``tools`` from kwargs and parses tool_calls out of the streamed
+./src/openjarvis/engine/ollama.py:247:            for tc in md.get("tool_calls", []):
+./src/openjarvis/engine/ollama.py:276:            payload, messages, retry_without_tools=bool(tools)
+./src/openjarvis/engine/ollama.py:294:                        payload, messages, retry_without_tools=False
+./src/openjarvis/engine/ollama.py:311:                    raw_tool_calls = message.get("tool_calls") or []
+
+========== 3. OPENJARVIS DEPENDENCIES (item 3: pydantic v1 vs v2, jsonschema, instructor) ==========
+--- pyproject.toml dependency blocks ---
+[project]
+dependencies = [
+    "click>=8",
+    "datasets>=4.5.0",
+    "ddgs>=9.11.4",
+    "httpx>=0.27",
+    "openai>=1.30",
+    "python-telegram-bot>=22.6",
+    "rich>=13",
+    "tomli>=2.0; python_version < '3.11'",
+    "tomlkit>=0.12",
+    "pyyaml>=6",
+    "pydantic>=2",
+    "sqlalchemy>=2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "maturin>=1.12.6",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5",
+    "respx>=0.22",
+    "ruff>=0.4",
+    "pre-commit>=3.0",
+]
+inference-mlx = ["mlx-lm>=0.31.1; sys_platform == 'darwin'"]
+inference-vllm = ["vllm>=0.16.0"]
+inference-cloud = [
+    "openai>=1.30",
+    "anthropic>=0.30",
+]
+inference-google = [
+    "google-genai>=1.0",
+]
+inference-litellm = ["litellm>=1.40"]
+inference-gemma = ["pygemma>=0.1.3"]
+tools-search = [
+    "tavily-python>=0.3",
+    "ddgs>=9.11.4",
+]
+memory-faiss = [
+    "faiss-cpu>=1.7",
+    "sentence-transformers>=2.2",
+    "numpy>=1.24",
+]
+memory-colbert = [
+    "colbert-ai>=0.2",
+    "torch>=2.0",
+]
+memory-pdf = ["pdfplumber>=0.10"]
+memory-bm25 = ["rank-bm25>=0.2.2"]
+server = [
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
+    "pydantic>=2.0",
+    "python-multipart>=0.0.9",
+]
+openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
+gpu-metrics = ["pynvml>=12.0"]
+...
+37:    "pydantic>=2",
+78:    "fastapi>=0.110",
+80:    "pydantic>=2.0",
+
+--- INSTALLED pydantic version (authoritative) ---
+pydantic 2.12.5
+
+--- other relevant installed versions ---
+jsonschema NOT-INSTALLED
+instructor NOT-INSTALLED
+ollama NOT-INSTALLED
+fastapi NOT-INSTALLED
+sqlalchemy 2.0.48
+click 8.3.1
+pyyaml NOT-INSTALLED
+
+========== 3b. PYDANTIC V1-vs-V2 USAGE SIGNALS IN OPENJARVIS SOURCE ==========
+v2 signals (model_config, field_validator, model_dump):
+36
+v1 signals (class Config, @validator, .dict(), .parse_obj):
+0
+
+========== 4. IS THERE A REGISTRY NEWTON COULD REGISTER INTO? (item 4) ==========
+./src/openjarvis/engine/litellm.py:16:@EngineRegistry.register("litellm")
+./src/openjarvis/engine/ollama.py:26:@EngineRegistry.register("ollama")
+./src/openjarvis/engine/_stubs.py:52:    ``@EngineRegistry.register("name")`` to become discoverable.
+./src/openjarvis/engine/cloud.py:211:@EngineRegistry.register("cloud")
+./src/openjarvis/engine/__init__.py:7:# Import engine modules to trigger @EngineRegistry.register() decorators
+./src/openjarvis/engine/openai_compat_engines.py:25:    EngineRegistry.register(_key)(_cls)
+./src/openjarvis/engine/gemma_cpp.py:24:@EngineRegistry.register("gemma_cpp")
+./src/openjarvis/learning/agents/dspy_optimizer.py:195:@LearningRegistry.register("dspy")
+./src/openjarvis/learning/agents/gepa_optimizer.py:313:@LearningRegistry.register("gepa")
+./src/openjarvis/learning/routing/learned_router.py:5:class registered as ``"learned"`` in ``RouterPolicyRegistry``.
+./src/openjarvis/learning/intelligence/grpo_trainer.py:358:@LearningRegistry.register("grpo")
+./src/openjarvis/learning/intelligence/orchestrator/grpo_trainer.py:468:    @LearningRegistry.register("orchestrator_grpo")
+./src/openjarvis/learning/intelligence/orchestrator/sft_trainer.py:382:    @LearningRegistry.register("orchestrator_sft")
+./src/openjarvis/learning/intelligence/orchestrator/prompt_registry.py:3:Adapted from IPW's ``prompt_registry.py``.  Provides the canonical system
+./src/openjarvis/learning/intelligence/orchestrator/__init__.py:27:from openjarvis.learning.intelligence.orchestrator.prompt_registry import (
+./src/openjarvis/learning/intelligence/sft_trainer.py:132:@LearningRegistry.register("sft")
+./src/openjarvis/learning/distillation/execute/loop.py:47:def _build_registry() -> EditApplierRegistry:
+./src/openjarvis/learning/distillation/execute/loop.py:50:    registry.register(SetModelForQueryClassApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:51:    registry.register(SetModelParamApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:52:    registry.register(PatchSystemPromptApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:53:    registry.register(ReplaceSystemPromptApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:54:    registry.register(SetAgentClassApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:55:    registry.register(SetAgentParamApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:56:    registry.register(EditFewShotExemplarsApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:57:    registry.register(AddToolToAgentApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:58:    registry.register(RemoveToolFromAgentApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:59:    registry.register(EditToolDescriptionApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:60:    registry.register(LoraStubApplier())
+./src/openjarvis/learning/distillation/execute/loop.py:88:        registry = _build_registry()
+./src/openjarvis/learning/distillation/execute/base.py:79:class EditApplierRegistry:
+./src/openjarvis/learning/distillation/execute/base.py:85:    def register(self, applier: EditApplier) -> None:
+./src/openjarvis/learning/distillation/orchestrator.py:19:from openjarvis.learning.distillation.execute.loop import _build_registry
+./src/openjarvis/learning/distillation/orchestrator.py:198:            registry = _build_registry()
+./src/openjarvis/agents/simple.py:11:@AgentRegistry.register("simple")
+./src/openjarvis/agents/openhands.py:18:@AgentRegistry.register("openhands")
+./src/openjarvis/agents/rlm.py:79:@AgentRegistry.register("rlm")
+./src/openjarvis/agents/operative.py:24:@AgentRegistry.register("operative")
+./src/openjarvis/agents/native_openhands.py:56:@AgentRegistry.register("native_openhands")
+./src/openjarvis/agents/claude_code.py:42:@AgentRegistry.register("claude_code")
+./src/openjarvis/agents/_stubs.py:46:    ``@AgentRegistry.register("name")`` to become discoverable.
+
+(If the above shows a clean, importable registry with a stable register()
+ signature, 'register into it' is viable. If it is entangled with skills/
+ learning/UI, prefer a SEPARATE Newton registry that dispatches itself.)
+
+========== 5. RISK-LEVEL RE-CHECK INPUT (item 5) ==========
+Enumerate the actual OpenJarvis tools/skills so their real actions can be
+bucketed against the 5 proposed levels (0 SAFE .. 4 WRITE_NETWORK):
+
+./src/openjarvis/a2a/tool.py:15:class A2AAgentTool(BaseTool):
+./src/openjarvis/learning/agents/skill_discovery.py:11:class DiscoveredSkill:
+./src/openjarvis/learning/distillation/diagnose/types.py:84:class DiagnosticTool:
+./src/openjarvis/scheduler/tools.py:114:class ListScheduledTasksTool(BaseTool):
+./src/openjarvis/scheduler/tools.py:14:class ScheduleTaskTool(BaseTool):
+./src/openjarvis/scheduler/tools.py:165:class PauseScheduledTaskTool(BaseTool):
+./src/openjarvis/scheduler/tools.py:225:class ResumeScheduledTaskTool(BaseTool):
+./src/openjarvis/scheduler/tools.py:285:class CancelScheduledTaskTool(BaseTool):
+./src/openjarvis/skills/sources/base.py:12:class ResolvedSkill:
+./src/openjarvis/skills/tool_adapter.py:16:class SkillTool(BaseTool):
+./src/openjarvis/tools/_stubs.py:46:class BaseTool(ABC):
+./src/openjarvis/tools/agent_tools.py:129:class AgentSendTool(BaseTool):
+./src/openjarvis/tools/agent_tools.py:216:class AgentListTool(BaseTool):
+./src/openjarvis/tools/agent_tools.py:268:class AgentKillTool(BaseTool):
+./src/openjarvis/tools/agent_tools.py:36:class AgentSpawnTool(BaseTool):
+./src/openjarvis/tools/apply_patch.py:181:class ApplyPatchTool(BaseTool):
+./src/openjarvis/tools/audio_tool.py:18:class AudioTranscribeTool(BaseTool):
+./src/openjarvis/tools/browser.py:155:class BrowserClickTool(BaseTool):
+./src/openjarvis/tools/browser.py:235:class BrowserTypeTool(BaseTool):
+./src/openjarvis/tools/browser.py:326:class BrowserScreenshotTool(BaseTool):
+./src/openjarvis/tools/browser.py:406:class BrowserExtractTool(BaseTool):
+./src/openjarvis/tools/browser.py:56:class BrowserNavigateTool(BaseTool):
+./src/openjarvis/tools/browser_axtree.py:27:class BrowserAXTreeTool(BaseTool):
+./src/openjarvis/tools/calculator.py:115:class CalculatorTool(BaseTool):
+./src/openjarvis/tools/channel_tools.py:143:class ChannelStatusTool(BaseTool):
+./src/openjarvis/tools/channel_tools.py:18:class ChannelSendTool(BaseTool):
+./src/openjarvis/tools/channel_tools.py:94:class ChannelListTool(BaseTool):
+./src/openjarvis/tools/code_interpreter.py:31:class CodeInterpreterTool(BaseTool):
+./src/openjarvis/tools/code_interpreter_docker.py:13:class DockerCodeInterpreterTool(BaseTool):
+./src/openjarvis/tools/db_query.py:96:class DatabaseQueryTool(BaseTool):
+./src/openjarvis/tools/digest_collect.py:385:class DigestCollectTool(BaseTool):
+./src/openjarvis/tools/file_read.py:17:class FileReadTool(BaseTool):
+./src/openjarvis/tools/file_write.py:17:class FileWriteTool(BaseTool):
+./src/openjarvis/tools/git_tool.py:111:class GitStatusTool(BaseTool):
+./src/openjarvis/tools/git_tool.py:165:class GitDiffTool(BaseTool):
+./src/openjarvis/tools/git_tool.py:244:class GitCommitTool(BaseTool):
+./src/openjarvis/tools/git_tool.py:332:class GitLogTool(BaseTool):
+./src/openjarvis/tools/http_request.py:26:class HttpRequestTool(BaseTool):
+./src/openjarvis/tools/image_tool.py:16:class ImageGenerateTool(BaseTool):
+./src/openjarvis/tools/knowledge_search.py:22:class KnowledgeSearchTool(BaseTool):
+./src/openjarvis/tools/knowledge_sql.py:27:class KnowledgeSQLTool(BaseTool):
+./src/openjarvis/tools/knowledge_tools.py:14:class KGAddEntityTool(BaseTool):
+./src/openjarvis/tools/knowledge_tools.py:150:class KGQueryTool(BaseTool):
+./src/openjarvis/tools/knowledge_tools.py:222:class KGNeighborsTool(BaseTool):
+./src/openjarvis/tools/knowledge_tools.py:83:class KGAddRelationTool(BaseTool):
+./src/openjarvis/tools/llm_tool.py:14:class LLMTool(BaseTool):
+./src/openjarvis/tools/mcp_adapter.py:12:class MCPToolAdapter(BaseTool):
+./src/openjarvis/tools/memory_manage.py:14:class MemoryManageTool(BaseTool):
+./src/openjarvis/tools/pdf_tool.py:51:class PDFExtractTool(BaseTool):
+./src/openjarvis/tools/repl.py:136:class ReplTool(BaseTool):
+./src/openjarvis/tools/retrieval.py:15:class RetrievalTool(BaseTool):
+./src/openjarvis/tools/scan_chunks.py:23:class ScanChunksTool(BaseTool):
+./src/openjarvis/tools/shell_exec.py:28:class ShellExecTool(BaseTool):
+./src/openjarvis/tools/skill_manage.py:14:class SkillManageTool(BaseTool):
+./src/openjarvis/tools/storage_tools.py:150:class MemorySearchTool(BaseTool):
+./src/openjarvis/tools/storage_tools.py:19:class MemoryStoreTool(BaseTool):
+./src/openjarvis/tools/storage_tools.py:224:class MemoryIndexTool(BaseTool):
+./src/openjarvis/tools/storage_tools.py:82:class MemoryRetrieveTool(BaseTool):
+./src/openjarvis/tools/templates/loader.py:22:class ToolTemplate(BaseTool):
+./src/openjarvis/tools/text_to_speech.py:15:class TextToSpeechTool(BaseTool):
+./src/openjarvis/tools/think.py:13:class ThinkTool(BaseTool):
+./src/openjarvis/tools/user_profile_manage.py:14:class UserProfileManageTool(BaseTool):
+./src/openjarvis/tools/web_search.py:18:class WebSearchTool(BaseTool):
+./tests/agents/test_base_agent.py:36:class _DummyTool(BaseTool):
+./tests/agents/test_base_agent.py:51:class _ConfirmTool(BaseTool):
+./tests/agents/test_native_openhands.py:19:class _CodeInterpreterStub(BaseTool):
+./tests/agents/test_native_openhands.py:60:class _CalculatorStub(BaseTool):
+./tests/agents/test_native_react.py:21:class _CalculatorStub(BaseTool):
+./tests/agents/test_native_react.py:45:class _ThinkStub(BaseTool):
+./tests/agents/test_orchestrator.py:18:class _CalculatorStub(BaseTool):
+./tests/agents/test_orchestrator.py:42:class _ThinkStub(BaseTool):
+./tests/agents/test_orchestrator.py:573:        class _SlowTool(BaseTool):
+./tests/agents/test_rlm.py:19:class _CalcStub(BaseTool):
+./tests/cli/test_ask_agent.py:69:class _DangerousTool(BaseTool):
+./tests/cli/test_chat_cmd.py:30:class _DangerousChatTool(BaseTool):
+./tests/cli/test_serve_channel_wiring.py:205:        class _FakeTool(BaseTool):
+./tests/learning/distillation/test_diagnose_types.py:123:class TestDiagnosticTool:
+./tests/mcp/test_client_extended.py:153:class TestCallTool:
+./tests/security/test_boundary_guard.py:215:        class FakeExternalTool(BaseTool):
+./tests/security/test_tool_confirmation.py:15:class _SafeTool(BaseTool):
+./tests/security/test_tool_confirmation.py:32:class _DangerousTool(BaseTool):
+./tests/skills/test_importer.py:30:class TestImportSkill:
+./tests/skills/test_integration_live.py:134:        class EchoTool(BaseTool):
+./tests/skills/test_manager.py:38:class EchoTool(BaseTool):
+./tests/skills/test_skill_tool_metadata_tagging.py:12:class _EchoTool(BaseTool):
+./tests/skills/test_skill_trace_tagging_integration.py:117:class _TaintingTool(BaseTool):
+./tests/skills/test_skills.py:12:class EchoTool(BaseTool):
+./tests/skills/test_skills.py:274:class TestSkillTool:
+./tests/skills/test_skills.py:29:class UpperTool(BaseTool):
+./tests/skills/test_sources.py:30:class TestResolvedSkill:
+./tests/skills/test_tool_adapter_v2.py:12:class EchoTool(BaseTool):
+./tests/test_orchestrator_learning/test_environment.py:17:class _MockCalculator(BaseTool):
+./tests/test_orchestrator_learning/test_orchestrator_structured.py:40:class _MockTool(BaseTool):
+./tests/tools/test_agent_tools.py:147:class TestAgentListTool:
+./tests/tools/test_agent_tools.py:204:class TestAgentKillTool:
+./tests/tools/test_agent_tools.py:20:class TestAgentSpawnTool:
+./tests/tools/test_agent_tools.py:91:class TestAgentSendTool:
+./tests/tools/test_apply_patch.py:8:class TestApplyPatchTool:
+./tests/tools/test_audio_tool.py:12:class TestAudioTranscribeTool:
+./tests/tools/test_browser.py:250:class TestBrowserClickTool:
+./tests/tools/test_browser.py:362:class TestBrowserTypeTool:
+./tests/tools/test_browser.py:495:class TestBrowserScreenshotTool:
+./tests/tools/test_browser.py:615:class TestBrowserExtractTool:
+./tests/tools/test_browser.py:62:class TestBrowserNavigateTool:
+./tests/tools/test_browser_axtree.py:30:class TestBrowserAXTreeTool:
+./tests/tools/test_calculator.py:74:class TestCalculatorTool:
+./tests/tools/test_channel_tools.py:140:class TestChannelListTool:
+./tests/tools/test_channel_tools.py:169:class TestChannelStatusTool:
+./tests/tools/test_channel_tools.py:81:class TestChannelSendTool:
+./tests/tools/test_code_interpreter.py:9:class TestCodeInterpreterTool:
+./tests/tools/test_code_interpreter_docker.py:17:class TestDockerCodeInterpreterTool:
+./tests/tools/test_db_query.py:10:class TestDatabaseQueryTool:
+./tests/tools/test_file_read.py:8:class TestFileReadTool:
+./tests/tools/test_file_write.py:8:class TestFileWriteTool:
+./tests/tools/test_git_tool.py:139:class TestGitStatusTool:
+./tests/tools/test_git_tool.py:224:class TestGitDiffTool:
+./tests/tools/test_git_tool.py:321:class TestGitCommitTool:
+./tests/tools/test_git_tool.py:442:class TestGitLogTool:
+./tests/tools/test_http_request.py:33:class TestHttpRequestTool:
+./tests/tools/test_image_tool.py:12:class TestImageGenerateTool:
+./tests/tools/test_knowledge_search.py:67:class TestKnowledgeSearchTool:
+./tests/tools/test_llm_tool.py:19:class TestLLMTool:
+./tests/tools/test_pdf_tool.py:12:class TestPDFExtractTool:
+./tests/tools/test_retrieval.py:55:class TestRetrievalTool:
+./tests/tools/test_shell_exec.py:39:class TestShellExecTool:
+./tests/tools/test_storage_tools.py:131:class TestMemorySearchTool:
+./tests/tools/test_storage_tools.py:160:class TestMemoryIndexTool:
+./tests/tools/test_storage_tools.py:63:class TestMemoryStoreTool:
+./tests/tools/test_storage_tools.py:91:class TestMemoryRetrieveTool:
+./tests/tools/test_stubs.py:14:class _EchoTool(BaseTool):
+./tests/tools/test_stubs.py:40:class _ErrorTool(BaseTool):
+./tests/tools/test_stubs.py:88:class TestBaseTool:
+./tests/tools/test_think.py:8:class TestThinkTool:
+./tests/tools/test_tool_descriptions.py:167:        class _EmptyParamTool(BaseTool):
+./tests/tools/test_tool_descriptions.py:17:class _CalcTool(BaseTool):
+./tests/tools/test_tool_descriptions.py:46:class _WebSearchTool(BaseTool):
+./tests/tools/test_tool_descriptions.py:77:class _NoCategoryTool(BaseTool):
+./tests/tools/test_tool_timeout.py:12:class SlowTool(BaseTool):
+./tests/tools/test_tool_timeout.py:33:class FastTool(BaseTool):
+./tests/tools/test_tool_timeout.py:84:        class NoTimeoutTool(BaseTool):
+./tests/tools/test_web_search.py:12:class TestWebSearchTool:
+
+For each tool above, note in the memo: does it (a) only compute/echo [0],
+(b) read local fs/sys [1], (c) write local fs [2], (d) read network [3],
+(e) write/send over network [4]? If NO tool exercises a level, that level
+is a candidate for collapse (doc TERMINOLOGY §12 + block-2 risk matrix).
+
+========== DONE ==========
+Paste this entire output into the chat, or save it next to the memo:
+  bash block-2.1-probe.sh | tee docs/newton/block-2.1-probe-output.txt
