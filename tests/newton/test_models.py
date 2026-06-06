@@ -292,24 +292,15 @@ def test_calendar_event_round_trip(session):
 
 
 def test_models_module_exports_everything():
-    """Smoke test that ``from newton.models import *`` covers all 13 models."""
-    import newton.models as m
+    """Every Base subclass defined under newton/models/ is exported in __all__.
 
-    names = set(m.__all__)
-    expected = {
-        "Base",
-        "User",
-        "Persona",
-        "UserPersonaLink",
-        "ChatSession",
-        "Message",
-        "RegistrationRequest",
-        "AuthAttempt",
-        "GuestActivity",
-        "SystemMetric",
-        "UserPattern",
-        "ProactiveNotification",
-        "ScreenCapture",
-        "CalendarEvent",
-    }
-    assert names == expected, f"diff: {names ^ expected}"
+    Compares two sources of truth: the model classes actually defined on
+    disk versus the names declared in ``__all__``. Adding a model file but
+    forgetting it in ``__all__`` fails here. No hardcoded list to maintain.
+    """
+    import newton.models as m
+    from tests.newton._schema_helpers import expected_model_names
+
+    exported = set(m.__all__) - {"Base"}
+    on_disk = expected_model_names()
+    assert exported == on_disk, f"diff: {exported ^ on_disk}"

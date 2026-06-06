@@ -18,6 +18,7 @@ from click.testing import CliRunner
 
 from newton.cli import cli
 from newton.db import get_engine
+from tests.newton._schema_helpers import expected_migration_versions
 
 
 @pytest.fixture
@@ -52,7 +53,7 @@ def test_init_creates_db_and_seeds_everything(runner, isolated_db):
     assert result.exit_code == 0, result.output
 
     data = json.loads(result.output)
-    assert data["migrations_applied"] == [1]
+    assert data["migrations_applied"] == expected_migration_versions()
     assert sorted(data["personas_added"]) == ["butler", "friday", "jarvis"]
     assert sorted(data["users_added"]) == ["gf", "sir"]
     assert sorted(data["links_added"]) == [["gf", "friday"], ["sir", "jarvis"]]

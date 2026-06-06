@@ -15,6 +15,7 @@ from click.testing import CliRunner
 
 from newton.cli import cli
 from newton.db import _session_factory, get_engine
+from tests.newton._schema_helpers import expected_migration_versions
 
 
 @pytest.fixture
@@ -75,7 +76,7 @@ def test_status_after_init_shows_seeded_data(runner, isolated_db):
     assert result.exit_code == 0
     data = json.loads(result.output)
 
-    assert data["database"]["migrations_applied"] == [1]
+    assert data["database"]["migrations_applied"] == expected_migration_versions()
     assert data["database"]["schema_up_to_date"] is True
     assert data["database"]["size_bytes"] > 0
 
