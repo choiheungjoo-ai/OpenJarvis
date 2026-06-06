@@ -36,6 +36,7 @@ from newton.config import ConfigError, load_config
 from newton.db import DataError, get_session, init_db, migration_status
 from newton.models import Persona, User
 from newton.seed import SeedReport, seed_all
+from newton.tools.assembly import build_provider_registry, build_tool_registry
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Root group
@@ -578,6 +579,266 @@ def status_cmd(as_json: bool) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# tools group
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def tools() -> None:
+    """Inspect and run Newton tools."""
+
+
+@tools.command("list")
+@click.option("--json", "as_json", is_flag=True)
+def tools_list(as_json: bool) -> None:
+    """List registered tools, safest first."""
+    registry = build_tool_registry(auto_approve=True)
+    rows = [
+        {
+            "name": t.name,
+            "risk": int(t.risk),
+            "risk_name": t.risk.name,
+            "description": t.description,
+        }
+        for t in registry.list()
+    ]
+    if as_json:
+        click.echo(json.dumps({"tools": rows}, indent=2))
+        return
+
+    console = Console()
+    table = Table(title="Newton tools")
+    table.add_column("name")
+    table.add_column("risk", justify="right")
+    table.add_column("level")
+    table.add_column("description")
+    for r in rows:
+        table.add_row(r["name"], str(r["risk"]), r["risk_name"], r["description"])
+    console.print(table)
+
+
+@tools.command("run")
+@click.argument("name")
+@click.option("--args", "args_json", default="{}", help="Tool args as a JSON object.")
+@click.option("--user", "user_id", default="sir", help="Acting user id.")
+@click.option("--persona", "persona_id", default="jarvis", help="Acting persona id.")
+@click.option("--yes", "auto_approve", is_flag=True, help="Skip the approval prompt.")
+@click.option("--json", "as_json", is_flag=True)
+def tools_run(
+    name: str,
+    args_json: str,
+    user_id: str,
+    persona_id: str,
+    auto_approve: bool,
+    as_json: bool,
+) -> None:
+    """Run a tool by name. Gated tools prompt for approval unless --yes."""
+    import asyncio
+
+    from newton.tools.base import ToolContext
+    from newton.tools.registry import ToolError
+
+    try:
+        raw_args = json.loads(args_json)
+        if not isinstance(raw_args, dict):
+            raise ValueError("--args must be a JSON object")
+    except (json.JSONDecodeError, ValueError) as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    registry = build_tool_registry(auto_approve=auto_approve)
+    context = ToolContext(user_id=user_id, persona_id=persona_id)
+
+    try:
+        result = asyncio.run(registry.dispatch(name, raw_args, context))
+    except ToolError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(result.model_dump(), indent=2, default=str))
+        return
+
+    console = Console()
+    color = {"ok": "green", "denied": "red", "needs_approval": "yellow"}.get(
+        result.status, "white"
+    )
+    console.print(f"[{color}]{result.status}[/{color}]")
+    if result.data is not None:
+        console.print(result.data)
+    if result.error:
+        console.print(f"[red]{result.error}[/red]")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# providers group
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def providers() -> None:
+    """Inspect and hot-swap capability providers."""
+
+
+@providers.command("list")
+@click.option("--capability", default=None, help="Filter to one capability.")
+@click.option("--json", "as_json", is_flag=True)
+def providers_list(capability: str | None, as_json: bool) -> None:
+    """List providers per capability, with the active one marked."""
+    from newton.providers.registry import ProviderError
+
+    registry = build_provider_registry()
+    caps = [capability] if capability else registry.capabilities()
+
+    out: dict = {}
+    try:
+        for cap in caps:
+            active = registry.resolve_active_name(cap, consume_once=False)
+            out[cap] = {
+                "active": active,
+                "providers": [
+                    {
+                        "name": p.name,
+                        "cost_model": p.cost_model.value,
+                        "free_quota": p.free_quota,
+                        "active": p.name == active,
+                    }
+                    for p in registry.list_providers(cap)
+                ],
+            }
+    except ProviderError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(out, indent=2))
+        return
+
+    console = Console()
+    for cap, info in out.items():
+        table = Table(title=f"capability: {cap}  (active: {info['active']})")
+        table.add_column("provider")
+        table.add_column("cost")
+        table.add_column("quota", justify="right")
+        table.add_column("active")
+        for p in info["providers"]:
+            table.add_row(
+                p["name"],
+                p["cost_model"],
+                str(p["free_quota"]) if p["free_quota"] is not None else "-",
+                "●" if p["active"] else "",
+            )
+        console.print(table)
+
+
+@providers.command("swap")
+@click.argument("capability")
+@click.argument("provider_name")
+@click.option(
+    "--scope",
+    type=click.Choice(["once", "session", "permanent"]),
+    default="permanent",
+    help="once=next call, session=this process, permanent=persisted.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def providers_swap(
+    capability: str, provider_name: str, scope: str, as_json: bool
+) -> None:
+    """Change the active provider for a capability.
+
+    Note: 'once' and 'session' scopes only affect the running process, so on
+    the CLI (one process per command) they have no lasting effect — use
+    'permanent' to persist. once/session exist for long-lived surfaces.
+    """
+    from newton.providers.registry import ProviderError
+
+    registry = build_provider_registry()
+    try:
+        registry.swap(capability, provider_name, scope=scope)
+    except ProviderError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    payload = {"capability": capability, "active": provider_name, "scope": scope}
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    click.secho(f"✓ {capability} → {provider_name} ({scope})", fg="green")
+
+
+@providers.command("test")
+@click.argument("capability")
+@click.option("--text", default="Hello Newton", help="Sample text to send.")
+@click.option("--json", "as_json", is_flag=True)
+def providers_test(capability: str, text: str, as_json: bool) -> None:
+    """Send a sample request through the active provider."""
+    import asyncio
+
+    from newton.providers.registry import ProviderError
+
+    registry = build_provider_registry()
+    try:
+        result = asyncio.run(registry.execute(capability, {"text": text}))
+    except ProviderError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(result.model_dump(), indent=2, default=str))
+        return
+    console = Console()
+    console.print(f"[green]provider:[/green] {result.provider_name}")
+    console.print(result.data)
+
+
+@providers.command("usage")
+@click.option("--json", "as_json", is_flag=True)
+def providers_usage(as_json: bool) -> None:
+    """Show per-provider usage/cost telemetry."""
+    registry = build_provider_registry()
+    tel = registry.telemetry()
+    if as_json:
+        click.echo(json.dumps(tel, indent=2))
+        return
+    console = Console()
+    for cap, info in tel.items():
+        table = Table(title=f"capability: {cap}  (active: {info['active']})")
+        table.add_column("provider")
+        table.add_column("cost")
+        table.add_column("used", justify="right")
+        for name, pinfo in info["providers"].items():
+            table.add_row(name, pinfo["cost_model"], str(pinfo["used_this_session"]))
+        console.print(table)
+
+
+@providers.command("health")
+@click.option("--json", "as_json", is_flag=True)
+def providers_health(as_json: bool) -> None:
+    """Run health_check on every registered provider."""
+    import asyncio
+
+    registry = build_provider_registry()
+
+    async def _check_all() -> dict[str, dict[str, bool]]:
+        out: dict[str, dict[str, bool]] = {}
+        for cap in registry.capabilities():
+            out[cap] = {}
+            for p in registry.list_providers(cap):
+                out[cap][p.name] = await p.health_check()
+        return out
+
+    results = asyncio.run(_check_all())
+    if as_json:
+        click.echo(json.dumps(results, indent=2))
+        return
+    console = Console()
+    for cap, providers_map in results.items():
+        for name, healthy in providers_map.items():
+            mark = "[green]healthy[/green]" if healthy else "[red]down[/red]"
+            console.print(f"{cap}/{name}: {mark}")
 
 
 def main() -> None:
