@@ -11,7 +11,7 @@ Public re-exports
     GuestActivity
     SystemMetric, UserPattern, ProactiveNotification,
     ScreenCapture, CalendarEvent
-    ToolPolicy, ToolApproval
+    ToolPolicy, ToolApproval, ProviderState
 """
 
 from newton.models.auth_attempt import AuthAttempt
@@ -22,6 +22,7 @@ from newton.models.guest_activity import GuestActivity
 from newton.models.message import Message
 from newton.models.persona import Persona
 from newton.models.proactive_notification import ProactiveNotification
+from newton.models.provider_state import ProviderState
 from newton.models.registration_request import RegistrationRequest
 from newton.models.screen_capture import ScreenCapture
 from newton.models.system_metric import SystemMetric
@@ -40,6 +41,7 @@ __all__ = [
     "Message",
     "Persona",
     "ProactiveNotification",
+    "ProviderState",
     "RegistrationRequest",
     "ScreenCapture",
     "SystemMetric",
