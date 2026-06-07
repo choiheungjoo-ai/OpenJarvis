@@ -426,6 +426,37 @@ def init_cmd(as_json: bool) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _status_tools_summary() -> dict:
+    """Tool counts grouped by risk level. Read-only; never raises."""
+    try:
+        from newton.tools.assembly import build_tool_registry
+
+        registry = build_tool_registry(auto_approve=True)
+        by_risk: dict[int, int] = {}
+        for t in registry.list():
+            by_risk[int(t.risk)] = by_risk.get(int(t.risk), 0) + 1
+        return {"count": len(registry), "by_risk": by_risk}
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+def _status_providers_summary() -> dict:
+    """Provider counts per capability with the active provider name."""
+    try:
+        from newton.tools.assembly import build_provider_registry
+
+        registry = build_provider_registry()
+        out: dict[str, dict] = {}
+        for cap in registry.capabilities():
+            out[cap] = {
+                "count": len(registry.list_providers(cap)),
+                "active": registry.resolve_active_name(cap, consume_once=False),
+            }
+        return out
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 @cli.command("status")
 @click.option("--json", "as_json", is_flag=True)
 def status_cmd(as_json: bool) -> None:
@@ -504,6 +535,8 @@ def status_cmd(as_json: bool) -> None:
                         for u in user_rows
                     ],
                     "config": cfg_summary,
+                    "tools": _status_tools_summary(),
+                    "providers": _status_providers_summary(),
                 },
                 indent=2,
                 ensure_ascii=False,
@@ -839,6 +872,297 @@ def providers_health(as_json: bool) -> None:
         for name, healthy in providers_map.items():
             mark = "[green]healthy[/green]" if healthy else "[red]down[/red]"
             console.print(f"{cap}/{name}: {mark}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# tools show
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@tools.command("show")
+@click.argument("name")
+@click.option("--json", "as_json", is_flag=True)
+def tools_show(name: str, as_json: bool) -> None:
+    """Show details for one tool: name, risk, description, args schema."""
+    from newton.tools.registry import ToolError
+
+    registry = build_tool_registry(auto_approve=True)
+    try:
+        tool = registry.get(name)
+    except ToolError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    payload = {
+        "name": tool.name,
+        "risk": int(tool.risk),
+        "risk_name": tool.risk.name,
+        "description": tool.description,
+        "args_schema": tool.args_schema.model_json_schema(),
+        "returns_schema": tool.returns_schema.model_json_schema(),
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+
+    console = Console()
+    console.print(
+        f"[bold]{tool.name}[/bold]  risk {payload['risk']} ({tool.risk.name})"
+    )
+    console.print(tool.description)
+    console.print("\n[bold]args schema:[/bold]")
+    console.print(json.dumps(payload["args_schema"], indent=2))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# tools policy group
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@tools.group("policy")
+def tools_policy() -> None:
+    """Inspect and edit the tool approval policy matrix."""
+
+
+@tools_policy.command("list")
+@click.option("--tool", "tool_name", default=None, help="Filter by tool name.")
+@click.option("--json", "as_json", is_flag=True)
+def tools_policy_list(tool_name: str | None, as_json: bool) -> None:
+    """List policy rows. Most-specific rows tend to come last."""
+    from sqlalchemy import select
+
+    from newton.db import get_session
+    from newton.models.tool_policy import ToolPolicy
+
+    with get_session() as session:
+        q = select(ToolPolicy)
+        if tool_name:
+            q = q.where(ToolPolicy.tool_name == tool_name)
+        rows = session.execute(q).scalars().all()
+        data = [
+            {
+                "policy_id": r.policy_id,
+                "tool_name": r.tool_name,
+                "persona_id": r.persona_id,
+                "user_id": r.user_id,
+                "decision": r.decision,
+                "note": r.note,
+            }
+            for r in rows
+        ]
+
+    if as_json:
+        click.echo(json.dumps({"policies": data}, indent=2))
+        return
+    if not data:
+        click.echo("(no policy rows)")
+        return
+    console = Console()
+    table = Table(title="tool policies")
+    table.add_column("id", justify="right")
+    table.add_column("tool")
+    table.add_column("persona")
+    table.add_column("user")
+    table.add_column("decision")
+    table.add_column("note")
+    for r in data:
+        table.add_row(
+            str(r["policy_id"]),
+            r["tool_name"],
+            r["persona_id"] or "*",
+            r["user_id"] or "*",
+            r["decision"],
+            r["note"] or "",
+        )
+    console.print(table)
+
+
+@tools_policy.command("set")
+@click.argument("tool_name")
+@click.option(
+    "--persona", "persona_id", default=None, help="Persona id (or omit for any)."
+)
+@click.option("--user", "user_id", default=None, help="User id (or omit for any).")
+@click.option(
+    "--decision",
+    type=click.Choice(["auto_allow", "require_approval", "always_deny"]),
+    required=True,
+)
+@click.option("--note", default=None, help="Optional rationale.")
+@click.option("--json", "as_json", is_flag=True)
+def tools_policy_set(
+    tool_name: str,
+    persona_id: str | None,
+    user_id: str | None,
+    decision: str,
+    note: str | None,
+    as_json: bool,
+) -> None:
+    """Add or update one policy row for (tool, persona, user)."""
+    from sqlalchemy import select
+
+    from newton.db import get_session
+    from newton.models.tool_policy import ToolPolicy
+
+    with get_session() as session:
+        existing = session.execute(
+            select(ToolPolicy).where(
+                ToolPolicy.tool_name == tool_name,
+                ToolPolicy.persona_id.is_(None)
+                if persona_id is None
+                else ToolPolicy.persona_id == persona_id,
+                ToolPolicy.user_id.is_(None)
+                if user_id is None
+                else ToolPolicy.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+
+        if existing is not None:
+            existing.decision = decision
+            if note is not None:
+                existing.note = note
+            row = existing
+            action = "updated"
+        else:
+            row = ToolPolicy(
+                tool_name=tool_name,
+                persona_id=persona_id,
+                user_id=user_id,
+                decision=decision,
+                note=note,
+            )
+            session.add(row)
+            session.flush()
+            action = "inserted"
+
+        payload = {
+            "action": action,
+            "policy_id": row.policy_id,
+            "tool_name": row.tool_name,
+            "persona_id": row.persona_id,
+            "user_id": row.user_id,
+            "decision": row.decision,
+        }
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    click.secho(
+        f"✓ {action} policy #{payload['policy_id']}: "
+        f"{tool_name} persona={persona_id or '*'} user={user_id or '*'} "
+        f"-> {decision}",
+        fg="green",
+    )
+
+
+@tools_policy.command("unset")
+@click.argument("tool_name")
+@click.option("--persona", "persona_id", default=None)
+@click.option("--user", "user_id", default=None)
+@click.option("--json", "as_json", is_flag=True)
+def tools_policy_unset(
+    tool_name: str, persona_id: str | None, user_id: str | None, as_json: bool
+) -> None:
+    """Delete the policy row matching (tool, persona, user) exactly."""
+    from sqlalchemy import select
+
+    from newton.db import get_session
+    from newton.models.tool_policy import ToolPolicy
+
+    with get_session() as session:
+        row = session.execute(
+            select(ToolPolicy).where(
+                ToolPolicy.tool_name == tool_name,
+                ToolPolicy.persona_id.is_(None)
+                if persona_id is None
+                else ToolPolicy.persona_id == persona_id,
+                ToolPolicy.user_id.is_(None)
+                if user_id is None
+                else ToolPolicy.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            payload = {"deleted": False, "reason": "no matching row"}
+            if as_json:
+                click.echo(json.dumps(payload, indent=2))
+                return
+            click.echo("no matching policy row")
+            return
+        pid = row.policy_id
+        session.delete(row)
+        payload = {"deleted": True, "policy_id": pid}
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    click.secho(f"✓ deleted policy #{pid}", fg="green")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# providers show, providers active
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@providers.command("show")
+@click.argument("capability")
+@click.option("--json", "as_json", is_flag=True)
+def providers_show(capability: str, as_json: bool) -> None:
+    """Show details for one capability: active provider and registered set."""
+    from newton.providers.registry import ProviderError
+
+    registry = build_provider_registry()
+    try:
+        active = registry.resolve_active_name(capability, consume_once=False)
+        listed = registry.list_providers(capability)
+    except ProviderError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    payload = {
+        "capability": capability,
+        "active": active,
+        "providers": [
+            {
+                "name": p.name,
+                "cost_model": p.cost_model.value,
+                "free_quota": p.free_quota,
+                "used_this_session": p.used_this_session,
+                "active": p.name == active,
+            }
+            for p in listed
+        ],
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    console = Console()
+    console.print(f"[bold]{capability}[/bold]  active: {active}")
+    for p in payload["providers"]:
+        mark = "●" if p["active"] else " "
+        console.print(
+            f"  {mark} {p['name']:20s} {p['cost_model']:10s} "
+            f"used={p['used_this_session']}"
+        )
+
+
+@providers.command("active")
+@click.argument("capability")
+@click.option("--json", "as_json", is_flag=True)
+def providers_active(capability: str, as_json: bool) -> None:
+    """Print just the active provider name for a capability."""
+    from newton.providers.registry import ProviderError
+
+    registry = build_provider_registry()
+    try:
+        name = registry.resolve_active_name(capability, consume_once=False)
+    except ProviderError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps({"capability": capability, "active": name}))
+        return
+    click.echo(name)
 
 
 def main() -> None:

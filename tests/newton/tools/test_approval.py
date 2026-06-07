@@ -182,7 +182,7 @@ async def test_hook_db_relaxation_allows_without_logging(session_factory):
     from newton.models.tool_policy import ToolPolicy
 
     with session_factory() as s:
-        s.add(ToolPolicy(tool_name="write_tool", require_approval=0))
+        s.add(ToolPolicy(tool_name="write_tool", decision="auto_allow"))
 
     hook = build_policy_hook(session_factory, approval_channel=DenyChannel())
     result = await hook(_WriteTool(), _Args(), _ctx())

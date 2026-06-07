@@ -22,7 +22,7 @@ from newton.tools.base import RiskLevel, Tool, ToolContext, ToolResult
 from newton.tools.policy import (
     PolicyDecision,
     build_policy_hook,
-    default_requires_approval,
+    default_decision,
     resolve_policy,
 )
 
@@ -100,24 +100,24 @@ def _add(factory, **kw):
 
 
 def test_default_safe_no_approval():
-    assert default_requires_approval(RiskLevel.SAFE) is False
-    assert default_requires_approval(RiskLevel.READ_LOCAL) is False
+    assert default_decision(RiskLevel.SAFE) == "auto_allow"
+    assert default_decision(RiskLevel.READ_LOCAL) == "auto_allow"
 
 
 def test_default_write_and_above_require_approval():
-    assert default_requires_approval(RiskLevel.WRITE_LOCAL) is True
-    assert default_requires_approval(RiskLevel.READ_NETWORK) is True
-    assert default_requires_approval(RiskLevel.WRITE_NETWORK) is True
+    assert default_decision(RiskLevel.WRITE_LOCAL) == "require_approval"
+    assert default_decision(RiskLevel.READ_NETWORK) == "require_approval"
+    assert default_decision(RiskLevel.WRITE_NETWORK) == "require_approval"
 
 
 def test_resolve_falls_back_to_risk_default_when_no_rows(session_factory):
     with session_factory() as s:
         d = resolve_policy(s, _SafeTool(), _ctx())
-    assert d == PolicyDecision(require_approval=False, source="risk_default")
+    assert d == PolicyDecision(decision="auto_allow", source="risk_default")
 
     with session_factory() as s:
         d = resolve_policy(s, _WriteTool(), _ctx())
-    assert d.require_approval is True
+    assert d.decision == "require_approval"
     assert d.source == "risk_default"
 
 
@@ -126,24 +126,24 @@ def test_resolve_falls_back_to_risk_default_when_no_rows(session_factory):
 
 def test_tool_wide_row_overrides_risk_default(session_factory):
     # write_tool would default to approval; a tool-wide row relaxes it.
-    _add(session_factory, tool_name="write_tool", require_approval=0)
+    _add(session_factory, tool_name="write_tool", decision="auto_allow")
     with session_factory() as s:
         d = resolve_policy(s, _WriteTool(), _ctx())
-    assert d.require_approval is False
+    assert d.decision == "auto_allow"
     assert d.source == "db"
 
 
 def test_user_wide_beats_tool_wide(session_factory):
-    _add(session_factory, tool_name="write_tool", require_approval=0)  # tier 4
+    _add(session_factory, tool_name="write_tool", decision="auto_allow")  # tier 4
     _add(
         session_factory,
         tool_name="write_tool",
         user_id="sir",
-        require_approval=1,
+        decision="require_approval",
     )  # tier 3
     with session_factory() as s:
         d = resolve_policy(s, _WriteTool(), _ctx(user="sir"))
-    assert d.require_approval is True  # user-wide wins
+    assert d.decision == "require_approval"  # user-wide wins
 
 
 def test_persona_wide_beats_user_wide(session_factory):
@@ -151,37 +151,37 @@ def test_persona_wide_beats_user_wide(session_factory):
         session_factory,
         tool_name="write_tool",
         user_id="sir",
-        require_approval=1,
+        decision="require_approval",
     )  # tier 3
     _add(
         session_factory,
         tool_name="write_tool",
         persona_id="jarvis",
-        require_approval=0,
+        decision="auto_allow",
     )  # tier 2
     with session_factory() as s:
         d = resolve_policy(s, _WriteTool(), _ctx(persona="jarvis", user="sir"))
-    assert d.require_approval is False  # persona-wide wins
+    assert d.decision == "auto_allow"  # persona-wide wins
 
 
 def test_exact_beats_everything(session_factory):
-    _add(session_factory, tool_name="write_tool", require_approval=1)  # tier 4
+    _add(session_factory, tool_name="write_tool", decision="require_approval")  # tier 4
     _add(
         session_factory,
         tool_name="write_tool",
         persona_id="jarvis",
-        require_approval=1,
+        decision="require_approval",
     )  # tier 2
     _add(
         session_factory,
         tool_name="write_tool",
         persona_id="jarvis",
         user_id="sir",
-        require_approval=0,
+        decision="auto_allow",
     )  # tier 1
     with session_factory() as s:
         d = resolve_policy(s, _WriteTool(), _ctx(persona="jarvis", user="sir"))
-    assert d.require_approval is False  # exact wins
+    assert d.decision == "auto_allow"  # exact wins
     assert d.source == "db"
 
 
@@ -191,23 +191,23 @@ def test_non_matching_rows_are_ignored(session_factory):
         session_factory,
         tool_name="write_tool",
         persona_id="friday",
-        require_approval=0,
+        decision="auto_allow",
     )
     _add(
         session_factory,
         tool_name="write_tool",
         user_id="gf",
-        require_approval=0,
+        decision="auto_allow",
     )
     with session_factory() as s:
         d = resolve_policy(s, _WriteTool(), _ctx(persona="jarvis", user="sir"))
     # Neither row matches -> risk default (approval for write).
-    assert d.require_approval is True
+    assert d.decision == "require_approval"
     assert d.source == "risk_default"
 
 
 def test_row_for_other_tool_ignored(session_factory):
-    _add(session_factory, tool_name="some_other_tool", require_approval=0)
+    _add(session_factory, tool_name="some_other_tool", decision="auto_allow")
     with session_factory() as s:
         d = resolve_policy(s, _WriteTool(), _ctx())
     assert d.source == "risk_default"
@@ -234,7 +234,35 @@ async def test_hook_allows_when_no_approval_required(session_factory):
 
 @pytest.mark.asyncio
 async def test_hook_respects_db_relaxation(session_factory):
-    _add(session_factory, tool_name="write_tool", require_approval=0)
+    _add(session_factory, tool_name="write_tool", decision="auto_allow")
     hook = build_policy_hook(session_factory)
     result = await hook(_WriteTool(), _Args(), _ctx())
     assert result is None  # DB row relaxed it -> allowed
+
+
+@pytest.mark.asyncio
+async def test_hook_always_deny_blocks_and_logs(session_factory):
+    """always_deny short-circuits without consulting any channel and is logged."""
+    from sqlalchemy import func, select
+
+    from newton.models.tool_approval import ToolApproval
+
+    _add(session_factory, tool_name="safe_tool", decision="always_deny")
+
+    hook = build_policy_hook(session_factory)  # no channel needed
+    result = await hook(_SafeTool(), _Args(), _ctx())
+    assert result.status == "denied"
+    assert result.metadata["policy_decision"] == "always_deny"
+
+    with session_factory() as s:
+        count = s.execute(select(func.count()).select_from(ToolApproval)).scalar_one()
+        row = s.execute(select(ToolApproval)).scalar_one()
+    assert count == 1
+    assert row.decision == "denied"
+    assert row.channel == "policy"
+
+
+def test_default_always_deny_never_returned_by_risk_default():
+    """Risk-default ladder yields auto_allow or require_approval only."""
+    for r in RiskLevel:
+        assert default_decision(r) in ("auto_allow", "require_approval")
