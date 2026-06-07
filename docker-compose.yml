@@ -1,0 +1,32 @@
+# Newton v4 — Qdrant service.
+#
+# Block 3 introduces Qdrant as Newton's vector store. Newton is the only
+# consumer of this compose file (OpenJarvis has its own under
+# deploy/docker/ which we never touch).
+#
+# Data lives under data/qdrant/ inside the repo working tree (gitignored)
+# so it follows the same "everything Newton owns sits in data/" convention
+# as the SQLite DB. To pin Qdrant elsewhere, override QDRANT_DATA_DIR:
+#
+#     QDRANT_DATA_DIR=/some/other/path docker compose up -d qdrant
+#
+# Ports:
+#   6333  HTTP / REST API
+#   6334  gRPC API (Newton uses HTTP for block 3)
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+    container_name: newton-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ${QDRANT_DATA_DIR:-./data/qdrant}:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

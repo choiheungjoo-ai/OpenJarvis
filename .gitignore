@@ -147,3 +147,4 @@ config/*.local.toml
 # pyproject.toml 등 설정 파일 timestamped 백업
 *.bak
 *.bak.*
+data/qdrant/

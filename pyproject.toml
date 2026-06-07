@@ -37,6 +37,7 @@ dependencies = [
     "pydantic>=2",
     "sqlalchemy>=2",
     "psutil>=7.2.2",
+    "qdrant-client>=1.18.0",
 ]
 
 [project.optional-dependencies]
@@ -162,6 +163,7 @@ packages = ["src/openjarvis", "newton"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "qdrant: requires a live Qdrant instance at localhost:6333",
     "amd: requires AMD GPU",
     "apple: requires Apple Silicon",
     "cloud: requires cloud API keys",
