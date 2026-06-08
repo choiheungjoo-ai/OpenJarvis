@@ -1,18 +1,23 @@
-# Newton v4 — Qdrant service.
+# Newton v4 — local service stack.
 #
-# Block 3 introduces Qdrant as Newton's vector store. Newton is the only
-# consumer of this compose file (OpenJarvis has its own under
-# deploy/docker/ which we never touch).
+# Newton is the only consumer of this compose file (OpenJarvis has its own
+# under deploy/docker/ which we never touch).
 #
-# Data lives under data/qdrant/ inside the repo working tree (gitignored)
-# so it follows the same "everything Newton owns sits in data/" convention
-# as the SQLite DB. To pin Qdrant elsewhere, override QDRANT_DATA_DIR:
+# Services:
+#   qdrant — vector store (block 3)
+#   tei    — text embeddings inference, serving BGE-M3 (block 3.2)
 #
-#     QDRANT_DATA_DIR=/some/other/path docker compose up -d qdrant
+# Everything Newton owns sits under data/ (gitignored), matching the
+# convention from the SQLite DB. Override the data dirs via env if needed:
 #
-# Ports:
-#   6333  HTTP / REST API
-#   6334  gRPC API (Newton uses HTTP for block 3)
+#     QDRANT_DATA_DIR=/elsewhere docker compose up -d qdrant
+#     TEI_DATA_DIR=/elsewhere    docker compose up -d tei
+#
+# GPU note: this host exposes both an AMD iGPU and the NVIDIA RTX 5090, so
+# the `--gpus all` shorthand fails (it tries to satisfy every vendor). We
+# request the NVIDIA card explicitly through CDI (driver: cdi + the
+# nvidia.com/gpu=all device). Requires nvidia-container-toolkit and a
+# generated /etc/cdi/nvidia.yaml on the host.
 
 services:
   qdrant:
@@ -30,3 +35,28 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cuda-1.9
+    container_name: newton-tei
+    restart: unless-stopped
+    # BGE-M3: multilingual (Korean-strong), 1024-dim dense, max seq 8192.
+    command: ["--model-id", "${TEI_MODEL_ID:-BAAI/bge-m3}", "--port", "80"]
+    ports:
+      - "${TEI_PORT:-8080}:80"
+    volumes:
+      - ${TEI_DATA_DIR:-./data/tei}:/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/80' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s  # first run downloads ~2GB model weights
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: cdi
+              capabilities: [gpu]
+              device_ids:
+                - nvidia.com/gpu=all

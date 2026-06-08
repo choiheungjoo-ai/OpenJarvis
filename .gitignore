@@ -148,3 +148,4 @@ config/*.local.toml
 *.bak
 *.bak.*
 data/qdrant/
+data/tei/
