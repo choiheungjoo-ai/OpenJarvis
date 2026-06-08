@@ -31,6 +31,7 @@ from newton.models.tool_policy import ToolPolicy
 from newton.models.user import User
 from newton.models.user_pattern import UserPattern
 from newton.models.user_persona_link import UserPersonaLink
+from newton.models.vault import VaultNoteRecord
 
 __all__ = [
     "AuthAttempt",
@@ -49,5 +50,6 @@ __all__ = [
     "ToolPolicy",
     "User",
     "UserPattern",
+    "VaultNoteRecord",
     "UserPersonaLink",
 ]

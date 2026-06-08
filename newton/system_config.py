@@ -47,10 +47,29 @@ class EmbeddingConfig(BaseModel):
     tei: TeiBackendConfig = Field(default_factory=TeiBackendConfig)
 
 
+class VaultLayout(BaseModel):
+    """Directory conventions inside the vault root.
+
+    Configurable so the scanner's path-inference rules aren't hardcoded.
+    """
+
+    notes_dir: str = "notes"
+    shared_dir: str = "shared"
+    quarantine_dir: str = "_guest_quarantine"
+
+
+class VaultConfig(BaseModel):
+    """Where the vault lives and how it is laid out."""
+
+    root: str = "data/vault"
+    layout: VaultLayout = Field(default_factory=VaultLayout)
+
+
 class SystemConfig(BaseModel):
     """Top-level system configuration."""
 
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    vault: VaultConfig = Field(default_factory=VaultConfig)
 
 
 class SystemConfigError(RuntimeError):
@@ -113,6 +132,8 @@ def load_system_config() -> SystemConfig:
 
 __all__ = [
     "EmbeddingConfig",
+    "VaultConfig",
+    "VaultLayout",
     "SystemConfig",
     "SystemConfigError",
     "TeiBackendConfig",

@@ -18,3 +18,12 @@ embedding:
   tei:
     url: http://localhost:8080
     timeout_s: 30.0
+
+# Vault layout (block 3). The scanner uses these directory conventions to
+# infer ownership and quarantine status, so they aren't hardcoded in code.
+vault:
+  root: data/vault
+  layout:
+    notes_dir: notes              # notes/<user_id>/... -> owner = <user_id>
+    shared_dir: shared            # shared/... -> owner must be in frontmatter
+    quarantine_dir: _guest_quarantine  # -> status pending_review
