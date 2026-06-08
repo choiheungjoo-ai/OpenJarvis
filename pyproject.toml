@@ -164,6 +164,7 @@ packages = ["src/openjarvis", "newton"]
 testpaths = ["tests"]
 markers = [
     "qdrant: requires a live Qdrant instance at localhost:6333",
+    "embedding: requires a live TEI service (BGE-M3) at localhost:8080",
     "amd: requires AMD GPU",
     "apple: requires Apple Silicon",
     "cloud: requires cloud API keys",

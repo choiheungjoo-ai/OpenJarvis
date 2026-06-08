@@ -25,9 +25,11 @@ def test_builtin_providers_discovered():
 def test_register_all_populates_registry():
     registry = ProviderRegistry()
     instances = register_all(registry, "newton.providers.builtin")
-    # Deterministic order: (capability, name)
-    assert [p.name for p in instances] == ["echo_loud", "echo_quiet"]
-    assert registry.capabilities() == ["demo.echo"]
+    names = {p.name for p in instances}
+    # Demo providers must be present; other builtins (e.g. embedding) may be
+    # discovered too, so assert membership rather than an exact set.
+    assert {"echo_loud", "echo_quiet"} <= names
+    assert "demo.echo" in registry.capabilities()
     listed = sorted(p.name for p in registry.list_providers("demo.echo"))
     assert listed == ["echo_loud", "echo_quiet"]
 

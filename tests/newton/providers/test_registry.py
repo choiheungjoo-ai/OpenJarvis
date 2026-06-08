@@ -72,7 +72,9 @@ def test_unknown_capability_raises():
 
 def test_capabilities_listing():
     r = _reg()
-    assert r.capabilities() == ["demo.echo"]
+    # demo.echo must be present; other builtin capabilities (e.g.
+    # embedding.encode) may also be registered.
+    assert "demo.echo" in r.capabilities()
 
 
 # -- default selection --------------------------------------------------------

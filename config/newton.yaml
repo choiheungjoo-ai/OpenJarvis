@@ -1,0 +1,20 @@
+# Newton v4 — system configuration.
+#
+# Infrastructure settings, separate from personas.yaml (which defines
+# personas/identity). Optional: if this file is absent, defaults apply.
+# For sir-only overrides, create config/newton.local.yaml (gitignored).
+
+embedding:
+  # Which registered backend to use. "tei" talks to the
+  # text-embeddings-inference service (see docker-compose.yml); "fake" is a
+  # deterministic test backend. Add a backend by dropping a module into
+  # newton/vault/embedding_backends/ with @register_embedding_backend.
+  backend: tei
+
+  # Max texts per backend call. null = use the service default (32).
+  batch_size: null
+
+  # Settings for the TEI backend.
+  tei:
+    url: http://localhost:8080
+    timeout_s: 30.0
