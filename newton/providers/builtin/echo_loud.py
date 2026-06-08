@@ -9,8 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from newton.providers.base import CostModel, Provider, ProviderResult
+from newton.providers.registration import register_provider
 
 
+@register_provider
 class EchoLoudProvider(Provider):
     name = "echo_loud"
     capability = "demo.echo"

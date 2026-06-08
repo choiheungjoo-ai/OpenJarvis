@@ -1,6 +1,7 @@
-"""Built-in demo providers for Block 2."""
+"""Built-in providers.
 
-from newton.providers.builtin.echo_loud import EchoLoudProvider
-from newton.providers.builtin.echo_quiet import EchoQuietProvider
-
-__all__ = ["EchoLoudProvider", "EchoQuietProvider"]
+Modules here are auto-discovered via
+``newton.providers.register_all(registry, "newton.providers.builtin")``.
+Each provider class opts in with the ``@register_provider`` decorator,
+so there is no explicit list to maintain here.
+"""

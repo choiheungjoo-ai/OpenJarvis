@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from newton.db import get_session
-from newton.providers import ProviderRegistry, register_demo_providers
+from newton.providers import ProviderRegistry, register_all
 from newton.tools.approval import AutoApproveChannel, CLIApprovalChannel
 from newton.tools.builtin import register_builtins
 from newton.tools.policy import build_policy_hook
@@ -42,7 +42,7 @@ def build_tool_registry(
 def build_provider_registry() -> ProviderRegistry:
     """A ProviderRegistry with demo providers and DB-backed permanent swaps."""
     registry = ProviderRegistry(session_factory=get_session)
-    register_demo_providers(registry)
+    register_all(registry, "newton.providers.builtin")
     return registry
 
 

@@ -1,6 +1,16 @@
-"""Newton provider layer (Block 2)."""
+"""Newton provider layer (Block 2+).
+
+Providers self-register via ``@register_provider`` (see registration.py).
+``register_all(registry, "newton.providers.builtin")`` discovers and
+instantiates them — no hardcoded provider list.
+"""
 
 from newton.providers.base import CostModel, Provider, ProviderResult
+from newton.providers.registration import (
+    discover_providers,
+    register_all,
+    register_provider,
+)
 from newton.providers.registry import ProviderError, ProviderRegistry
 
 __all__ = [
@@ -9,14 +19,7 @@ __all__ = [
     "ProviderError",
     "ProviderRegistry",
     "ProviderResult",
-    "register_demo_providers",
+    "discover_providers",
+    "register_all",
+    "register_provider",
 ]
-
-
-def register_demo_providers(registry: ProviderRegistry) -> None:
-    """Register the block-2 demo providers (capability ``demo.echo``)."""
-    from newton.providers.builtin.echo_loud import EchoLoudProvider
-    from newton.providers.builtin.echo_quiet import EchoQuietProvider
-
-    registry.register(EchoLoudProvider())
-    registry.register(EchoQuietProvider())

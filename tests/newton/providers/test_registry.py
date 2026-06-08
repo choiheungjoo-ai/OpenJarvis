@@ -13,7 +13,7 @@ from newton.models.base import Base
 from newton.providers import (
     CostModel,
     ProviderRegistry,
-    register_demo_providers,
+    register_all,
 )
 from newton.providers.base import Provider, ProviderResult
 from newton.providers.builtin.echo_loud import EchoLoudProvider
@@ -44,7 +44,7 @@ def session_factory():
 
 def _reg(session_factory=None) -> ProviderRegistry:
     r = ProviderRegistry(session_factory=session_factory)
-    register_demo_providers(r)
+    register_all(r, "newton.providers.builtin")
     return r
 
 
