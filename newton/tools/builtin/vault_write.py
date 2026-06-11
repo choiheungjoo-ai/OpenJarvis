@@ -136,6 +136,11 @@ class VaultWriteTool(Tool):
         with get_session() as session:
             scan(session, config.vault)
             ir = await index_vault(session, config)
+            # Best-effort biasing hook: harvest entities from the new note
+            # into the writer's STT dictionary. Never breaks the save.
+            from newton.vault.biasing_hook import on_vault_save
+
+            bias_report = on_vault_save(session, args.content, context.user_id)
 
         rel_to_root = str(target.relative_to(root.resolve()))
         return ToolResult(
@@ -145,6 +150,7 @@ class VaultWriteTool(Tool):
                 "quarantined": quarantined,
                 "notes_indexed": ir.notes_indexed,
                 "chunks_upserted": ir.chunks_upserted,
+                "biasing": bias_report,
             },
         )
 

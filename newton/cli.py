@@ -1384,6 +1384,69 @@ def persona_route(
         console.print(prompt)
 
 
+# -----------------------------------------------------------------------------
+# voice group
+# -----------------------------------------------------------------------------
+
+
+@cli.group()
+def voice() -> None:
+    """Voice subsystem helpers (biasing dictionary, ...)."""
+
+
+@voice.group()
+def biasing() -> None:
+    """Inspect or clear a user's STT contextual-biasing dictionary."""
+
+
+@biasing.command("show")
+@click.option("--user", "user_id", required=True)
+@click.option("--json", "as_json", is_flag=True)
+def biasing_show(user_id: str, as_json: bool) -> None:
+    """Show the user's biasing dictionary."""
+    from newton.db import get_session
+    from newton.models import User
+
+    with get_session() as session:
+        user = session.get(User, user_id)
+        if user is None:
+            click.secho(f"error: unknown user {user_id!r}", fg="red", err=True)
+            sys.exit(1)
+        entries = json.loads(user.stt_bias_dict_json or "[]")
+
+    if as_json:
+        click.echo(json.dumps(entries, indent=2, ensure_ascii=False))
+        return
+    console = Console()
+    if not entries:
+        console.print("[dim]biasing dictionary is empty[/dim]")
+        return
+    console.print(f"[bold]{len(entries)} entries[/bold] for {user_id}:")
+    for e in entries:
+        console.print(f"  {e}")
+
+
+@biasing.command("clear")
+@click.option("--user", "user_id", required=True)
+@click.option("--yes", is_flag=True, help="Skip confirmation.")
+def biasing_clear(user_id: str, yes: bool) -> None:
+    """Clear the user's biasing dictionary."""
+    from newton.db import get_session
+    from newton.models import User
+
+    if not yes:
+        click.confirm(f"Clear biasing dictionary for {user_id}?", abort=True)
+
+    with get_session() as session:
+        user = session.get(User, user_id)
+        if user is None:
+            click.secho(f"error: unknown user {user_id!r}", fg="red", err=True)
+            sys.exit(1)
+        user.stt_bias_dict_json = "[]"
+
+    click.echo(f"cleared biasing dictionary for {user_id}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

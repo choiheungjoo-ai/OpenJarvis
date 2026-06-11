@@ -67,7 +67,10 @@ def engine():
     # Apply the actual production migration so we test what we ship.
     with eng.connect() as conn:
         raw = conn.connection.driver_connection
-        raw.executescript(MIGRATION_001.read_text(encoding="utf-8"))
+        # Apply ALL production migrations in order, exactly like init_db,
+        # so later ALTERs (e.g. 008 users.stt_bias_dict_json) are included.
+        for mig in sorted(MIGRATION_001.parent.glob("0*.sql")):
+            raw.executescript(mig.read_text(encoding="utf-8"))
     return eng
 
 

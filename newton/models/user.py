@@ -40,6 +40,10 @@ class User(Base):
     # at lookup time, allowing a user to reference a persona that may have
     # been later renamed without an immediate cascade.
     default_persona_id: Mapped[str | None] = mapped_column(nullable=True)
+
+    # STT contextual-biasing dictionary (block 3.9): JSON array of
+    # entity strings harvested from this user's vault notes.
+    stt_bias_dict_json: Mapped[str] = mapped_column(default="[]", server_default="[]")
     pin_hash: Mapped[str | None] = mapped_column(nullable=True)
     passphrase_hash: Mapped[str | None] = mapped_column(nullable=True)
     retry_profile: Mapped[str] = mapped_column(
