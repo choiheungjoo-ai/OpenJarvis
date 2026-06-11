@@ -1165,6 +1165,80 @@ def providers_active(capability: str, as_json: bool) -> None:
     click.echo(name)
 
 
+# -----------------------------------------------------------------------------
+# vault group
+# -----------------------------------------------------------------------------
+
+
+@cli.group()
+def vault() -> None:
+    """Vault: scan, index, and (later) search notes."""
+
+
+@vault.command("index")
+@click.option("--force", is_flag=True, help="Re-index every note, ignoring hashes.")
+@click.option("--no-scan", is_flag=True, help="Skip the scan; index cache as-is.")
+@click.option("--json", "as_json", is_flag=True)
+def vault_index(force: bool, no_scan: bool, as_json: bool) -> None:
+    """Scan the vault, then chunk/embed/upsert changed notes into Qdrant."""
+    import asyncio
+
+    from newton.db import get_session
+    from newton.system_config import load_system_config
+    from newton.vault.indexer import index_vault
+    from newton.vault.scanner import scan
+
+    config = load_system_config()
+
+    async def _run() -> dict:
+        with get_session() as session:
+            scan_summary = None
+            if not no_scan:
+                sr = scan(session, config.vault)
+                scan_summary = {
+                    "scanned": sr.scanned,
+                    "added": sr.added,
+                    "updated": sr.updated,
+                    "removed": sr.removed,
+                    "unchanged": sr.unchanged,
+                }
+            ir = await index_vault(session, config, force=force)
+            return {
+                "scan": scan_summary,
+                "index": {
+                    "notes_indexed": ir.notes_indexed,
+                    "notes_skipped": ir.notes_skipped,
+                    "chunks_upserted": ir.chunks_upserted,
+                    "errors": ir.errors,
+                },
+            }
+
+    try:
+        report = asyncio.run(_run())
+    except Exception as e:  # noqa: BLE001
+        click.secho(f"error: {type(e).__name__}: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2))
+        return
+
+    console = Console()
+    if report["scan"] is not None:
+        s = report["scan"]
+        console.print(
+            f"[bold]scan[/bold]: scanned {s['scanned']}, +{s['added']} "
+            f"~{s['updated']} -{s['removed']} ({s['unchanged']} unchanged)"
+        )
+    i = report["index"]
+    console.print(
+        f"[bold]index[/bold]: {i['notes_indexed']} notes indexed, "
+        f"{i['notes_skipped']} skipped, {i['chunks_upserted']} chunks upserted"
+    )
+    for err in i["errors"]:
+        console.print(f"[red]  error: {err}[/red]")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

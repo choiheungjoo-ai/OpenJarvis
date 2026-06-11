@@ -38,6 +38,7 @@ class VaultNoteRecord(Base):
     tags_json: Mapped[str] = mapped_column(default="[]", server_default="[]")
     content_hash: Mapped[str]
     mtime: Mapped[float] = mapped_column(default=0.0, server_default="0")
+    indexed_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     indexed_at: Mapped[datetime] = mapped_column(
         server_default=func.current_timestamp()
     )
