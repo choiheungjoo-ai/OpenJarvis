@@ -62,6 +62,7 @@ class ACL(BaseModel):
     write_users: list[str] = Field(default_factory=list)
     write_personas: list[str] = Field(default_factory=list)
     status: ACLStatus = ACLStatus.PENDING_REVIEW
+    status_explicit: bool = False
     unknown_keys: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -90,8 +91,10 @@ class ACL(BaseModel):
         if not acl_raw:
             return cls()
         unknown = sorted(k for k in acl_raw if k not in _KNOWN_ACL_KEYS)
+        status_explicit = "status" in acl_raw
         data = {k: v for k, v in acl_raw.items() if k in _KNOWN_ACL_KEYS}
         data["unknown_keys"] = unknown
+        data["status_explicit"] = status_explicit
         return cls(**data)
 
 

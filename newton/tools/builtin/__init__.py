@@ -11,12 +11,16 @@ from __future__ import annotations
 from newton.tools.builtin.echo import EchoTool
 from newton.tools.builtin.echo_to_file import EchoToFileTool
 from newton.tools.builtin.system_info import SystemInfoTool
+from newton.tools.builtin.vault_search import VaultSearchTool
+from newton.tools.builtin.vault_write import VaultWriteTool
 from newton.tools.registry import ToolRegistry
 
 __all__ = [
     "EchoTool",
     "EchoToFileTool",
     "SystemInfoTool",
+    "VaultSearchTool",
+    "VaultWriteTool",
     "register_builtins",
 ]
 
@@ -26,3 +30,5 @@ def register_builtins(registry: ToolRegistry) -> None:
     registry.register(EchoTool())
     registry.register(SystemInfoTool())
     registry.register(EchoToFileTool())
+    registry.register(VaultSearchTool())
+    registry.register(VaultWriteTool())

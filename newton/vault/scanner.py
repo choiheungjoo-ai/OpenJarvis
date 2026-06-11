@@ -72,11 +72,13 @@ def _resolve_owner_and_status(
     if owner is None:
         return None, ACLStatus.PENDING_REVIEW.value
 
-    # If frontmatter gave an explicit status, keep it; otherwise canonical
-    # for an owned note.
-    status = note.acl.status.value
-    if note.acl.owner is None and status == ACLStatus.PENDING_REVIEW.value:
-        # owner came from path inference; treat as canonical for that user.
+    # An owned note with no explicit status is canonical. This covers both
+    # path-inferred owners and frontmatter owners that omitted `status`
+    # (the ACL default is pending_review, which would otherwise hide the
+    # note from canonical search).
+    if note.acl.status_explicit:
+        status = note.acl.status.value
+    else:
         status = ACLStatus.CANONICAL.value
     return owner, status
 

@@ -255,6 +255,8 @@ def test_status_json_includes_tools_and_providers(runner, seeded_db):
     data = json.loads(result.output)
     assert "tools" in data
     assert "providers" in data
-    assert data["tools"]["count"] == 3
+    # builtins grow over time (vault tools added in block 3); the
+    # demo trio must still be present.
+    assert data["tools"]["count"] >= 3
     assert data["providers"]["demo.echo"]["count"] == 2
     assert data["providers"]["demo.echo"]["active"] == "echo_loud"

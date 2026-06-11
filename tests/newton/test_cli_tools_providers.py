@@ -45,7 +45,9 @@ def test_tools_list_json(runner, seeded_db):
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     names = [t["name"] for t in data["tools"]]
-    assert names == ["echo", "system_info", "echo_to_file"]  # risk-sorted
+    # demo trio present; risk-sorted so echo (risk 0) leads.
+    assert {"echo", "system_info", "echo_to_file"} <= set(names)
+    assert names[0] == "echo"
     assert data["tools"][0]["risk"] == 0
     assert data["tools"][0]["risk_name"] == "SAFE"
 
