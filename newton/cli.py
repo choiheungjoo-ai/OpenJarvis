@@ -1239,6 +1239,79 @@ def vault_index(force: bool, no_scan: bool, as_json: bool) -> None:
         console.print(f"[red]  error: {err}[/red]")
 
 
+@vault.command("search")
+@click.argument("query")
+@click.option("--user", "user_id", default="sir", help="Acting user id.")
+@click.option("--persona", "persona_id", default="jarvis", help="Active persona.")
+@click.option("--limit", default=5, help="Max results.")
+@click.option(
+    "--status",
+    "status_filter",
+    default="canonical",
+    help="Only notes with this status (canonical|shared|pending_review).",
+)
+@click.option("--json", "as_json", is_flag=True)
+def vault_search(
+    query: str,
+    user_id: str,
+    persona_id: str,
+    limit: int,
+    status_filter: str,
+    as_json: bool,
+) -> None:
+    """Semantic search over the vault, filtered by ACL for (user, persona)."""
+    import asyncio
+
+    from newton.vault.search import search
+
+    try:
+        hits = asyncio.run(
+            search(
+                query,
+                user_id,
+                persona_id,
+                limit=limit,
+                status_filter=status_filter,
+            )
+        )
+    except Exception as e:  # noqa: BLE001
+        click.secho(f"error: {type(e).__name__}: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "note_id": h.note_id,
+                        "chunk_index": h.chunk_index,
+                        "path": h.path,
+                        "score": h.score,
+                        "text": h.text,
+                        "owner_user_id": h.owner_user_id,
+                        "status": h.status,
+                        "tags": h.tags,
+                    }
+                    for h in hits
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    console = Console()
+    if not hits:
+        console.print("[dim]no results[/dim]")
+        return
+    console.print(f"[bold]{len(hits)} result(s)[/bold] for {query!r}:")
+    for h in hits:
+        console.print(
+            f"  [green]{h.score:.3f}[/green]  {h.path} [dim]#{h.chunk_index}[/dim]"
+        )
+        console.print(f"    {h.text}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

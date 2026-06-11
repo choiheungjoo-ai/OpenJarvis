@@ -95,7 +95,7 @@ def _payload(row: Any, chunk_index: int, text: str) -> dict[str, Any]:
         "path": row.path,
         "owner_user_id": row.owner_user_id,
         "read_users": row.read_users,
-        "read_personas": row.read_personas,
+        "read_personas": row.read_personas or ["*"],
         "status": row.status,
         "tags": row.tags,
         "text": text[:_PAYLOAD_TEXT_PREVIEW],
