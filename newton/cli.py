@@ -1312,6 +1312,78 @@ def vault_search(
         console.print(f"    {h.text}")
 
 
+# -----------------------------------------------------------------------------
+# persona group
+# -----------------------------------------------------------------------------
+
+
+@cli.group()
+def persona() -> None:
+    """Persona activation routing and prompt rendering."""
+
+
+@persona.command("route")
+@click.option("--user", "user_id", required=True, help="Acting user id.")
+@click.option("--voice-stage2", "voice", default=None, help="Named persona.")
+@click.option("--face-stage2", "face", is_flag=True, help="Face binding (use default).")
+@click.option("--show-prompt", is_flag=True, help="Also print the system prompt.")
+@click.option("--json", "as_json", is_flag=True)
+def persona_route(
+    user_id: str, voice: str | None, face: bool, show_prompt: bool, as_json: bool
+) -> None:
+    """Route a Stage-2 signal to a persona and (optionally) render its prompt."""
+    from newton.db import get_session
+    from newton.persona import (
+        FaceBindingSignal,
+        PersonaEngine,
+        PersonaEngineError,
+        VoiceNamingSignal,
+    )
+
+    if voice and face:
+        click.secho(
+            "error: pass only one of --voice-stage2 / --face-stage2", fg="red", err=True
+        )
+        sys.exit(1)
+    if not voice and not face:
+        click.secho(
+            "error: pass --voice-stage2 NAME or --face-stage2", fg="red", err=True
+        )
+        sys.exit(1)
+
+    signal = VoiceNamingSignal(voice) if voice else FaceBindingSignal()
+
+    try:
+        with get_session() as session:
+            engine = PersonaEngine(session)
+            act = engine.route(user_id, signal)
+            prompt = (
+                engine.render_system_prompt(act.persona_id, user_id)
+                if show_prompt
+                else None
+            )
+    except PersonaEngineError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        out = {
+            "user_id": act.user_id,
+            "persona_id": act.persona_id,
+            "reason": act.reason.value,
+        }
+        if prompt is not None:
+            out["system_prompt"] = prompt
+        click.echo(json.dumps(out, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    console.print(f"persona: [bold]{act.persona_id}[/bold]  ({act.reason.value})")
+    if prompt is not None:
+        console.print("[dim]--- system prompt ---[/dim]")
+        console.print(prompt)
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]
