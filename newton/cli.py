@@ -2069,6 +2069,299 @@ def proactive_test_alert(
         )
 
 
+# ── proactive patterns subgroup (step 4.3) ─────────────────────────────────
+
+
+@proactive.group("patterns")
+def proactive_patterns() -> None:
+    """Inspect and manage learned user_patterns rows."""
+
+
+@proactive_patterns.command("learn")
+@click.option("--user", "user_id", default="sir", show_default=True)
+@click.option(
+    "--once",
+    is_flag=True,
+    help="Run one pass and exit. The cron / timer wiring lands in a later step.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def patterns_learn(user_id: str, once: bool, as_json: bool) -> None:
+    """Detect patterns from existing tables and upsert user_patterns rows."""
+    from newton.db import get_session
+    from newton.proactive.patterns.learner import PatternLearner
+
+    if not once:
+        click.secho(
+            "error: cron / timer wiring not implemented yet; pass --once",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    learner = PatternLearner()
+    with get_session() as session:
+        report = learner.run(session, user_id)
+
+    payload = {
+        "user_id": report.user_id,
+        "window_start": report.window_start.isoformat(),
+        "window_end": report.window_end.isoformat(),
+        "inserted": report.inserted,
+        "updated": report.updated,
+        "pattern_ids": report.pattern_ids,
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+
+    console = Console()
+    console.print(
+        f"learn: {report.inserted} inserted, {report.updated} updated "
+        f"({len(report.pattern_ids)} total) over "
+        f"{report.window_start.date()} → {report.window_end.date()}"
+    )
+
+
+@proactive_patterns.command("list")
+@click.option("--user", "user_id", default=None, help="Filter by user_id.")
+@click.option(
+    "--type",
+    "pattern_type",
+    type=click.Choice(["time", "sequence", "context"]),
+    default=None,
+    help="Filter by pattern_type.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def patterns_list(user_id: str | None, pattern_type: str | None, as_json: bool) -> None:
+    """List learned patterns, highest confidence first."""
+    from sqlalchemy import select
+
+    from newton.db import get_session
+    from newton.models.user_pattern import UserPattern
+
+    with get_session() as session:
+        q = select(UserPattern)
+        if user_id:
+            q = q.where(UserPattern.user_id == user_id)
+        if pattern_type:
+            q = q.where(UserPattern.pattern_type == pattern_type)
+        q = q.order_by(UserPattern.confidence.desc().nulls_last())
+        rows = list(session.execute(q).scalars().all())
+
+    data = [
+        {
+            "pattern_id": r.pattern_id,
+            "user_id": r.user_id,
+            "pattern_type": r.pattern_type,
+            "confidence": r.confidence,
+            "occurrences": r.occurrences,
+            "last_seen": r.last_seen.isoformat() if r.last_seen else None,
+            "data": json.loads(r.pattern_data_json) if r.pattern_data_json else None,
+        }
+        for r in rows
+    ]
+    if as_json:
+        click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    if not data:
+        console.print("[dim]no patterns[/dim]")
+        return
+    table = Table(title="user_patterns")
+    table.add_column("id", justify="right")
+    table.add_column("user")
+    table.add_column("type")
+    table.add_column("confidence", justify="right")
+    table.add_column("occurrences", justify="right")
+    table.add_column("data")
+    for r in data:
+        conf = f"{r['confidence']:.3f}" if r["confidence"] is not None else "—"
+        table.add_row(
+            str(r["pattern_id"]),
+            r["user_id"],
+            r["pattern_type"],
+            conf,
+            str(r["occurrences"]),
+            json.dumps(r["data"], ensure_ascii=False) if r["data"] else "",
+        )
+    console.print(table)
+
+
+@proactive_patterns.command("show")
+@click.argument("pattern_id", type=int)
+@click.option("--json", "as_json", is_flag=True)
+def patterns_show(pattern_id: int, as_json: bool) -> None:
+    """Show a pattern with both stored confidence and a live-recomputed one.
+
+    Stored confidence is what the last ``learn`` run wrote. Live
+    confidence is recomputed *now* from the row's counts + current
+    config — so if you tuned ``half_life_days`` since the last learn,
+    the divergence is visible rather than silently confusing.
+    """
+    from datetime import datetime
+
+    from newton.db import get_session
+    from newton.models.user_pattern import UserPattern
+    from newton.proactive.config import load_proactive_config
+    from newton.proactive.patterns.confidence import score_with_breakdown
+
+    with get_session() as session:
+        row = session.get(UserPattern, pattern_id)
+        if row is None:
+            click.secho(f"error: no pattern with id={pattern_id}", fg="red", err=True)
+            sys.exit(1)
+
+        # Approximate the opportunities denominator. The row doesn't
+        # store opportunities — only occurrences — so we recompute by
+        # re-running the relevant detector. For show, that overhead is
+        # fine and ensures the live breakdown is accurate.
+        opportunities = _recompute_opportunities(session, row)
+
+        cfg = load_proactive_config().patterns
+        now = datetime.now()
+        bd = score_with_breakdown(
+            occurrences=row.occurrences,
+            opportunities=opportunities,
+            last_seen=row.last_seen,
+            now=now,
+            config=cfg,
+        )
+        payload = {
+            "pattern_id": row.pattern_id,
+            "user_id": row.user_id,
+            "pattern_type": row.pattern_type,
+            "data": json.loads(row.pattern_data_json)
+            if row.pattern_data_json
+            else None,
+            "stored_confidence": row.confidence,
+            "live_confidence": bd.score,
+            "live_breakdown": {
+                "occurrences": bd.occurrences,
+                "opportunities": bd.opportunities,
+                "days_since_last_seen": bd.days_since_last_seen,
+                "penalty": bd.penalty,
+                "consistency": bd.consistency,
+                "volume_factor": bd.volume_factor,
+                "recency_factor": bd.recency_factor,
+                "raw": bd.raw,
+                "floor_passed": bd.floor_passed,
+                "opportunities_passed": bd.opportunities_passed,
+            },
+            "live_explain": bd.explain(),
+            "last_seen": row.last_seen.isoformat() if row.last_seen else None,
+        }
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    console.print(
+        f"[bold]#{payload['pattern_id']}[/bold] {payload['pattern_type']} "
+        f"({payload['user_id']})"
+    )
+    console.print(f"  data: {json.dumps(payload['data'], ensure_ascii=False)}")
+    stored = payload["stored_confidence"]
+    stored_str = f"{stored:.3f}" if stored is not None else "—"
+    console.print(f"  stored confidence: {stored_str}")
+    console.print(f"  live confidence  : {payload['live_confidence']:.3f}")
+    console.print(f"  explain          : {payload['live_explain']}")
+
+
+def _recompute_opportunities(db_session, row) -> int:
+    """Re-run the relevant detector to recover the opportunities count.
+
+    Only used by ``patterns show``; the cost is one extra scan over
+    the observation window per show. Worth it for explainability.
+    """
+    from datetime import datetime, timedelta
+
+    from newton.proactive.config import load_proactive_config
+    from newton.proactive.patterns import sequence, time_based
+
+    cfg = load_proactive_config().patterns
+    now = datetime.now()
+    window_start = now - timedelta(days=cfg.observation_window_days)
+    sig = json.loads(row.pattern_data_json) if row.pattern_data_json else {}
+
+    if row.pattern_type == "time":
+        for obs in time_based.detect(
+            db_session, row.user_id, window_start, cfg.pattern_timezone
+        ):
+            if obs.signature() == sig:
+                return obs.opportunities
+    elif row.pattern_type == "sequence":
+        for obs in sequence.detect(
+            db_session,
+            row.user_id,
+            window_start,
+            cfg.sequence.default_window_seconds,
+        ):
+            if obs.signature() == sig:
+                return obs.opportunities
+    # context, or fell out of the window entirely
+    return 0
+
+
+@proactive_patterns.command("forget")
+@click.argument("pattern_id", type=int)
+@click.option("--yes", is_flag=True, help="Skip confirmation.")
+def patterns_forget(pattern_id: int, yes: bool) -> None:
+    """Delete one pattern row. Use when a routine has changed and decay is too slow."""
+    from newton.db import get_session
+    from newton.models.user_pattern import UserPattern
+
+    if not yes:
+        click.confirm(f"Forget pattern #{pattern_id}?", abort=True)
+
+    with get_session() as session:
+        row = session.get(UserPattern, pattern_id)
+        if row is None:
+            click.secho(f"error: no pattern with id={pattern_id}", fg="red", err=True)
+            sys.exit(1)
+        session.delete(row)
+
+    click.echo(f"forgot pattern #{pattern_id}")
+
+
+@proactive.command("seed-test-data")
+@click.option("--user", "user_id", default="sir", show_default=True)
+@click.option("--weeks", default=4, show_default=True, type=int)
+@click.option("--seed", default=42, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_seed_test_data(
+    user_id: str, weeks: int, seed: int, as_json: bool
+) -> None:
+    """Insert deterministic synthetic activity so the learner has data to chew on."""
+    from newton.db import get_session
+    from newton.proactive.patterns.seed import seed_test_data
+
+    with get_session() as session:
+        report = seed_test_data(session, user_id=user_id, weeks=weeks, seed=seed)
+
+    payload = {
+        "user_id": report.user_id,
+        "weeks": report.weeks,
+        "seed": report.seed,
+        "sessions_added": report.sessions_added,
+        "tool_approvals_added": report.tool_approvals_added,
+        "expected_patterns": report.expected_patterns,
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    console.print(
+        f"seeded: {report.sessions_added} sessions, "
+        f"{report.tool_approvals_added} tool_approvals "
+        f"({weeks} weeks, seed={seed})"
+    )
+    for p in report.expected_patterns:
+        console.print(f"  expect: {p}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

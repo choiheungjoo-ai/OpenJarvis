@@ -52,11 +52,90 @@ class ThresholdRule(BaseModel):
         return v
 
 
+class SequencePatternConfig(BaseModel):
+    """Sequence-pattern-specific knobs (currently just the window)."""
+
+    default_window_seconds: int = 600
+
+    @field_validator("default_window_seconds")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("default_window_seconds must be > 0")
+        return v
+
+
+class PatternsConfig(BaseModel):
+    """Pattern recognition + confidence scoring knobs (block 4 step 4.3).
+
+    The confidence model is:
+
+        confidence = consistency × volume × recency × (1 - penalty)
+
+    Every coefficient here is observable, not magical. Tune in the
+    YAML; the scorer reads them at call time.
+    """
+
+    # How far back the learner looks. Observations older than this are
+    # invisible to both the numerator and the denominator, so they
+    # naturally fall off rather than being penalised twice (numerator
+    # drop + recency decay).
+    observation_window_days: int = 28
+
+    # Pre-filter: a pattern fewer than this many occurrences shouldn't
+    # be allowed to score at all. The doc's ``observed_count >= 3``
+    # gate, configurable here.
+    min_occurrences_floor: int = 3
+
+    # Pre-filter: denominator floor. If we've only observed N=2
+    # opportunities (Tuesdays, vault_searches, …), consistency is too
+    # noisy to use — return 0.0 confidence rather than a number we'd
+    # have to caveat.
+    min_opportunities: int = 4
+
+    # Volume factor saturates at this many occurrences. So
+    # ``min(1, occurrences / min_confident_samples)`` — a 3-of-3
+    # pattern at 100% consistency only hits the ceiling at this many
+    # observations.
+    min_confident_samples: int = 10
+
+    # Recency decay e^(-days_since_last_seen / half_life_days).
+    # 30 ⇒ a pattern not seen for 30 days decays to ≈0.37.
+    half_life_days: float = 30.0
+
+    # Until ``users.timezone`` lands (likely 4.5 quiet hours), use one
+    # global timezone for weekday/hour bucketing. SQLite stores naive
+    # UTC; the learner shifts through this offset before bucketing.
+    pattern_timezone: str = "Asia/Seoul"
+
+    sequence: SequencePatternConfig = Field(default_factory=SequencePatternConfig)
+
+    @field_validator(
+        "observation_window_days",
+        "min_occurrences_floor",
+        "min_opportunities",
+        "min_confident_samples",
+    )
+    @classmethod
+    def _positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+    @field_validator("half_life_days")
+    @classmethod
+    def _positive_half_life(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("half_life_days must be > 0")
+        return v
+
+
 class ProactiveConfig(BaseModel):
     """Top-level proactive engine configuration."""
 
     thresholds: list[ThresholdRule] = Field(default_factory=list)
     cooldown_minutes: int = 15
+    patterns: PatternsConfig = Field(default_factory=PatternsConfig)
 
     @field_validator("cooldown_minutes")
     @classmethod
@@ -146,8 +225,10 @@ def load_proactive_config() -> ProactiveConfig:
 
 
 __all__ = [
+    "PatternsConfig",
     "ProactiveConfig",
     "ProactiveConfigError",
+    "SequencePatternConfig",
     "ThresholdRule",
     "load_proactive_config",
 ]

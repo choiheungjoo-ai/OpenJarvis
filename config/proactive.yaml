@@ -93,3 +93,39 @@ thresholds:
 # many minutes. Prevents a sustained high-CPU stretch from flooding
 # proactive_notifications with one row per sampling tick.
 cooldown_minutes: 15
+
+# ── Pattern recognition (block 4 step 4.3) ────────────────────────────
+#
+# The learner detects time / sequence patterns (context patterns are
+# deferred — see newton/proactive/patterns/context.py for the gap) and
+# scores them with a three-factor model:
+#
+#     confidence = consistency × volume × recency × (1 - penalty)
+#
+# Every knob below is observable, not magical. Tune freely.
+patterns:
+  # How far back the learner looks. Observations older than this drop
+  # out of both the numerator and the denominator naturally.
+  observation_window_days: 28
+
+  # Pre-filter floors. Below either of these, confidence is 0.0 —
+  # too few observations to mean anything.
+  min_occurrences_floor: 3       # numerator floor (doc's >=3 gate)
+  min_opportunities: 4           # denominator floor
+
+  # Volume factor saturates here: a 10-of-10 pattern at full
+  # consistency is 1.0; a 3-of-3 isn't.
+  min_confident_samples: 10
+
+  # Recency decay e^(-days_since_last_seen / half_life_days).
+  # 30 ⇒ a pattern not seen for ~30 days decays to ≈0.37.
+  half_life_days: 30
+
+  # Until users.timezone lands (likely block 4.5 quiet hours), all
+  # weekday / hour bucketing goes through this single offset.
+  pattern_timezone: Asia/Seoul
+
+  sequence:
+    # The default A→B window. "vault_search then vault_write within
+    # 10 min" uses this if a more specific value isn't requested.
+    default_window_seconds: 600
