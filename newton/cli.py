@@ -1313,6 +1313,117 @@ def vault_search(
         console.print(f"    {h.text}")
 
 
+# ── vault quarantine subgroup ────────────────────────────────────────────────
+
+
+@vault.group("quarantine")
+def vault_quarantine() -> None:
+    """Review guest activity held in quarantine."""
+
+
+@vault_quarantine.command("list")
+@click.option("--json", "as_json", is_flag=True)
+def vault_quarantine_list(as_json: bool) -> None:
+    """List pending quarantined items (orphan files are folded in first)."""
+    from newton.db import get_session
+    from newton.system_config import load_system_config
+    from newton.vault.quarantine import list_pending
+
+    config = load_system_config()
+    with get_session() as session:
+        items = list_pending(session, config)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "activity_id": it.activity_id,
+                        "path": it.path,
+                        "activity_type": it.activity_type,
+                        "summary": it.summary,
+                        "status": it.status,
+                    }
+                    for it in items
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    console = Console()
+    if not items:
+        console.print("[dim]quarantine is empty[/dim]")
+        return
+    console.print(f"[bold]{len(items)} pending item(s)[/bold]:")
+    for it in items:
+        kind = it.activity_type or "?"
+        console.print(f"  [yellow]#{it.activity_id}[/yellow]  {kind}  {it.path}")
+        if it.summary:
+            console.print(f"      {it.summary}")
+
+
+@vault_quarantine.command("review")
+@click.argument("activity_id", type=int)
+@click.option(
+    "--decision",
+    required=True,
+    type=click.Choice(["promote", "shared", "reject", "hold"]),
+)
+@click.option("--by", "reviewed_by", default="sir", help="Reviewer user id.")
+@click.option(
+    "--owner",
+    "target_owner",
+    default=None,
+    help="Owner for promoted notes (defaults to reviewer).",
+)
+@click.option("--json", "as_json", is_flag=True)
+def vault_quarantine_review(
+    activity_id: int,
+    decision: str,
+    reviewed_by: str,
+    target_owner: str | None,
+    as_json: bool,
+) -> None:
+    """Apply a decision to one quarantined item by its activity id."""
+    import asyncio
+
+    from newton.db import get_session
+    from newton.system_config import load_system_config
+    from newton.vault.quarantine import Decision, review
+
+    config = load_system_config()
+
+    async def _run() -> dict:
+        with get_session() as session:
+            return await review(
+                session,
+                activity_id,
+                Decision(decision),
+                config,
+                reviewed_by=reviewed_by,
+                target_owner=target_owner,
+            )
+
+    try:
+        report = asyncio.run(_run())
+    except ValueError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+    except Exception as e:  # noqa: BLE001
+        click.secho(f"error: {type(e).__name__}: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2))
+        return
+    click.echo(
+        f"#{report['activity_id']}: {report['decision']} "
+        f"-> {report['status']} ({report['path']})"
+    )
+
+
 # -----------------------------------------------------------------------------
 # persona group
 # -----------------------------------------------------------------------------
