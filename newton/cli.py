@@ -1706,12 +1706,20 @@ def _proactive_pidfile_path() -> Path:
     show_default=True,
     help="Seconds between samples when the user is idle.",
 )
+@click.option(
+    "--user",
+    "user_id",
+    default="sir",
+    show_default=True,
+    help="User id to pin alert rows against (proactive_notifications.user_id).",
+)
 @click.option("--json", "as_json", is_flag=True)
 def proactive_start(
     foreground: bool,
     once: bool,
     active_interval_s: float,
     idle_interval_s: float,
+    user_id: str,
     as_json: bool,
 ) -> None:
     """Start the proactive monitoring daemon."""
@@ -1719,6 +1727,7 @@ def proactive_start(
     import os
 
     from newton.proactive import daemon as daemon_module
+    from newton.proactive.alerts import AlertChecker
     from newton.proactive.daemon import ProactiveDaemon
     from newton.proactive.pidfile import clear_pidfile, inspect, write_pidfile
 
@@ -1748,10 +1757,18 @@ def proactive_start(
         monitors=daemon_module.default_monitors(),
         active_interval_s=active_interval_s,
         idle_interval_s=idle_interval_s,
+        alert_checker=AlertChecker(),
+        alert_user_id=user_id,
     )
 
     if once:
         report = daemon.tick_once()
+        # Alerts are surfaced through display_text so the [kind] prefix
+        # never reaches the user.
+        alerts_payload = [
+            {"kind": a.kind, "value": a.value, "text": a.display}
+            for a in report.alerts_fired
+        ]
         if as_json:
             click.echo(
                 json.dumps(
@@ -1759,18 +1776,23 @@ def proactive_start(
                         "metrics_written": report.metrics_written,
                         "metrics_skipped": report.metrics_skipped,
                         "per_monitor": report.per_monitor,
+                        "alerts_fired": alerts_payload,
                     },
                     indent=2,
+                    ensure_ascii=False,
                 )
             )
             return
         click.echo(
             f"one tick: {report.metrics_written} written, "
-            f"{report.metrics_skipped} skipped"
+            f"{report.metrics_skipped} skipped, "
+            f"{len(report.alerts_fired)} alert(s)"
         )
         for name, value in report.per_monitor.items():
             shown = f"{value:.2f}" if isinstance(value, float) else "—"
             click.echo(f"  {name:10s} {shown}")
+        for a in report.alerts_fired:
+            click.echo(f"  alert [{a.kind}]: {a.display}")
         return
 
     if not foreground:
@@ -1938,6 +1960,113 @@ def proactive_status(as_json: bool) -> None:
         console.print(f"  {name:12s} {count}")
     if last_sample_iso:
         console.print(f"last sample: {last_sample_iso}")
+
+
+@proactive.command("test-alert")
+@click.argument("kind")
+@click.option("--user", "user_id", default="sir", show_default=True)
+@click.option(
+    "--value",
+    "value_override",
+    type=float,
+    default=None,
+    help=(
+        "Override the synthetic sample value. By default the CLI picks a "
+        "value guaranteed to cross the rule's threshold."
+    ),
+)
+@click.option(
+    "--ignore-cooldown",
+    is_flag=True,
+    help="Insert the synthetic sample even if a recent alert of this kind exists.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_test_alert(
+    kind: str,
+    user_id: str,
+    value_override: float | None,
+    ignore_cooldown: bool,
+    as_json: bool,
+) -> None:
+    """Inject a synthetic sample and run the alert checker for one rule.
+
+    Used by the design-doc verification flow:
+    ``newton proactive test-alert battery_low`` writes a sample that
+    crosses the ``battery_low`` threshold and inserts the resulting
+    notification row.
+    """
+    from newton.db import get_session
+    from newton.models.proactive_notification import ProactiveNotification
+    from newton.models.system_metric import SystemMetric
+    from newton.proactive.alerts import AlertChecker
+    from newton.proactive.config import load_proactive_config
+
+    config = load_proactive_config()
+    rule = next((r for r in config.thresholds if r.kind == kind), None)
+    if rule is None:
+        click.secho(f"error: no rule with kind={kind!r}", fg="red", err=True)
+        sys.exit(1)
+    if rule.dormant:
+        click.secho(
+            f"error: rule {kind!r} is dormant — no monitor produces "
+            f"metric_type={rule.metric_type!r} yet",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Default test value: just over the threshold for '>', just under for '<'.
+    if value_override is not None:
+        test_value = value_override
+    elif rule.op == ">":
+        test_value = rule.value + 1.0
+    else:  # rule.op == "<"
+        test_value = max(0.0, rule.value - 1.0)
+
+    checker = AlertChecker(config=config)
+
+    with get_session() as session:
+        session.add(SystemMetric(metric_type=rule.metric_type, value=float(test_value)))
+        session.flush()
+
+        if ignore_cooldown:
+            # Wipe matching cooldown rows so the checker fires fresh.
+            session.query(ProactiveNotification).filter(
+                ProactiveNotification.user_id == user_id,
+                ProactiveNotification.notification_text.like(f"[{kind}] %"),
+            ).delete(synchronize_session=False)
+
+        fired = checker.run(session, user_id)
+
+    matching = [a for a in fired if a.kind == kind]
+    payload = {
+        "kind": kind,
+        "value": test_value,
+        "fired": bool(matching),
+        # Always emit display-only text; the [kind] prefix is storage-only.
+        "alerts": [
+            {"kind": a.kind, "value": a.value, "text": a.display} for a in fired
+        ],
+    }
+    if not matching:
+        payload["reason"] = "in cooldown — pass --ignore-cooldown to force"
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    if matching:
+        a = matching[0]
+        # Show kind: text, no square brackets — Rich would parse them as
+        # markup. Operator CLI surface; the actual user-facing prose is
+        # already prefix-stripped via a.display.
+        console.print(f"[green]fired[/green]  {a.kind}: {a.display}")
+    else:
+        console.print(
+            f"[yellow]not fired[/yellow]  {kind}: in cooldown "
+            f"(--ignore-cooldown to force)"
+        )
 
 
 def main() -> None:

@@ -1,0 +1,95 @@
+# Newton v4 — proactive engine configuration.
+#
+# Edit this file to tune Newton's threshold alerts and (in later steps)
+# its mode behaviour. Optional: defaults apply if absent. For sir-only
+# overrides, create config/proactive.local.yaml (gitignored).
+#
+# Defaults from docs/newton/design/newton-v4-jarvis-gap.md §3.1.
+
+thresholds:
+  # Each rule is matched against the most recent system_metrics row of
+  # the named metric_type. `op` is one of '>' or '<'. When the
+  # comparison holds and the rule is not in cooldown, a row is inserted
+  # into proactive_notifications.
+  #
+  # The `kind` identifier is the storage-only prefix used for cooldown
+  # bookkeeping; it is stripped before any notification is shown or
+  # spoken (see newton.proactive.alerts.display_text).
+
+  - kind: cpu_high
+    metric_type: cpu
+    op: ">"
+    value: 90.0
+    text: "Sir, CPU at {value:.0f}%."
+
+  - kind: gpu_high
+    metric_type: gpu
+    op: ">"
+    value: 85.0
+    text: "Sir, GPU utilisation at {value:.0f}%."
+
+  - kind: memory_high
+    metric_type: memory
+    op: ">"
+    value: 90.0
+    text: "Sir, memory at {value:.0f}%."
+
+  - kind: gpu_temp_hot
+    metric_type: temperature
+    op: ">"
+    value: 83.0
+    text: "Sir, GPU temperature at {value:.0f}°C."
+
+  - kind: battery_low
+    metric_type: battery
+    op: "<"
+    value: 20.0
+    text: "Sir, battery at {value:.0f}%."
+
+  - kind: battery_critical
+    metric_type: battery
+    op: "<"
+    value: 10.0
+    text: "Sir, battery critically low — {value:.0f}%."
+
+  # ── Dormant rules ──────────────────────────────────────────────────
+  # The metric_types below are not produced by any monitor yet (step 4.1
+  # ships cpu / gpu / memory / battery / temperature). These rules sit
+  # in the config so the schema is complete from the start; they will
+  # begin firing the moment a matching monitor lands in a later step,
+  # with no code or config change here.
+
+  - kind: vram_high
+    metric_type: gpu       # gpu_util uses 'gpu'; a future vram monitor needs its own metric_type
+    op: ">"
+    value: 95.0
+    text: "Sir, VRAM at {value:.0f}%."
+    dormant: true          # never matches until a dedicated vram monitor exists
+
+  - kind: disk_high
+    metric_type: cpu       # placeholder — system_metrics has no 'disk' metric_type yet
+    op: ">"
+    value: 90.0
+    text: "Sir, disk at {value:.0f}%."
+    dormant: true
+
+  - kind: cpu_temp_hot
+    metric_type: temperature
+    op: ">"
+    value: 80.0
+    text: "Sir, CPU temperature at {value:.0f}°C."
+    # No CPU temp monitor yet — only GPU temp uses 'temperature'.
+    # The checker disambiguates by source once a CpuTempMonitor lands.
+    dormant: true
+
+  - kind: network_slow
+    metric_type: network
+    op: "<"
+    value: 50.0
+    text: "Sir, network speed dropped to {value:.0f}% of baseline."
+    dormant: true
+
+# Cooldown — once a rule fires, the same kind is suppressed for this
+# many minutes. Prevents a sustained high-CPU stretch from flooding
+# proactive_notifications with one row per sampling tick.
+cooldown_minutes: 15

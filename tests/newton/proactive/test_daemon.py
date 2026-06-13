@@ -84,6 +84,56 @@ def test_tick_once_writes_one_row_per_available_monitor(isolated_db):
     assert rows[0].value == pytest.approx(10.0)
 
 
+def test_tick_once_runs_alert_checker_when_supplied(isolated_db):
+    """The daemon must invoke a supplied AlertChecker after sampling."""
+
+    from newton.models.proactive_notification import ProactiveNotification
+    from newton.models.user import User
+    from newton.proactive.alerts import AlertChecker
+    from newton.proactive.config import ProactiveConfig, ThresholdRule
+
+    init_db()
+    with get_session() as session:
+        session.add(User(user_id="sir", display_name="Sir"))
+
+    checker = AlertChecker(
+        config=ProactiveConfig(
+            thresholds=[
+                ThresholdRule(
+                    kind="cpu_high",
+                    metric_type="cpu",
+                    op=">",
+                    value=10.0,  # _FixedMonitor writes 99.0
+                    text="Sir, CPU at {value:.0f}%.",
+                )
+            ],
+            cooldown_minutes=15,
+        )
+    )
+    daemon = ProactiveDaemon(
+        monitors=[_FixedMonitor(value=99.0)],
+        is_active=lambda: True,
+        alert_checker=checker,
+        alert_user_id="sir",
+    )
+
+    report = daemon.tick_once()
+
+    assert report.metrics_written == 1
+    assert len(report.alerts_fired) == 1
+    a = report.alerts_fired[0]
+    # The daemon's report carries the FiredAlert object whose .display
+    # is the prefix-free, user-facing text.
+    assert "[cpu_high]" not in a.display
+    assert a.display == "Sir, CPU at 99%."
+
+    with get_session() as session:
+        rows = session.execute(select(ProactiveNotification)).scalars().all()
+    assert len(rows) == 1
+    # Stored form keeps the prefix; only the display surface strips it.
+    assert rows[0].notification_text.startswith("[cpu_high] ")
+
+
 def test_tick_once_survives_monitor_exception(isolated_db):
     init_db()
     daemon = ProactiveDaemon(
@@ -249,8 +299,10 @@ def test_cli_status_reports_sample_counts(isolated_db):
 # ── CLI: proactive start --once ────────────────────────────────────────────
 
 
-def test_cli_start_once_writes_rows(isolated_db, monkeypatch):
-    init_db()
+def test_cli_start_once_writes_rows(seeded_db, monkeypatch):
+    # seeded_db (not isolated_db) is needed because the CLI's `start`
+    # wires an AlertChecker which inserts proactive_notifications rows
+    # against user_id 'sir' — a FK to users(user_id).
 
     # Replace default monitors with a fixed set so the test doesn't depend
     # on the host's GPU/battery presence. ProactiveDaemon imports

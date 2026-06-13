@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from newton.db import get_session
 from newton.models.chat_session import ChatSession
 from newton.models.system_metric import SystemMetric
+from newton.proactive.alerts import AlertChecker, FiredAlert
 from newton.proactive.monitors import Monitor, default_monitors
 
 log = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ class TickReport:
     metrics_written: int = 0
     metrics_skipped: int = 0
     per_monitor: dict[str, float | None] = field(default_factory=dict)
+    alerts_fired: list[FiredAlert] = field(default_factory=list)
 
 
 @dataclass
@@ -85,6 +87,14 @@ class ProactiveDaemon:
     active_interval_s: float = 5.0
     idle_interval_s: float = 60.0
     shutdown_slice_s: float = 0.5
+
+    # Optional alert checker. ``None`` keeps the daemon a pure sampler
+    # (the original step 4.1 behaviour and what unit tests of monitors
+    # need). When supplied, each tick runs the checker after sampling,
+    # in the same transaction, so the freshly-written system_metrics row
+    # is what the checker reads.
+    alert_checker: AlertChecker | None = None
+    alert_user_id: str = "sir"
 
     stop_event: threading.Event = field(default_factory=threading.Event)
 
@@ -130,6 +140,20 @@ class ProactiveDaemon:
                 SystemMetric(metric_type=monitor.metric_type, value=float(value))
             )
             report.metrics_written += 1
+
+        if self.alert_checker is not None:
+            # Flush the metric inserts so the checker's "latest sample"
+            # query reads what this tick produced rather than the
+            # previous tick's values.
+            session.flush()
+            try:
+                report.alerts_fired = self.alert_checker.run(
+                    session, self.alert_user_id
+                )
+            except Exception as e:  # noqa: BLE001
+                # An alert misfire must not take down the sampling loop —
+                # log it and let the next tick try again.
+                log.warning("alert checker failed: %s", e)
 
     # ── interval policy ────────────────────────────────────────────────
 
