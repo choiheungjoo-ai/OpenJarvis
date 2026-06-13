@@ -1659,6 +1659,287 @@ def memory_recall(
         console.print(f"    {h.text}")
 
 
+# -----------------------------------------------------------------------------
+# proactive group (block 4)
+# -----------------------------------------------------------------------------
+
+
+@cli.group()
+def proactive() -> None:
+    """Proactive engine — background monitoring, patterns, notifications."""
+
+
+def _proactive_pidfile_path() -> Path:
+    from newton.db import _data_dir
+    from newton.proactive.pidfile import pidfile_path
+
+    return pidfile_path(_data_dir())
+
+
+@proactive.command("start")
+@click.option(
+    "--foreground/--detach",
+    default=True,
+    help=(
+        "Foreground (default) runs the daemon in this terminal until Ctrl-C; "
+        "--detach double-forks into the background."
+    ),
+)
+@click.option(
+    "--once",
+    is_flag=True,
+    help="Run exactly one sampling pass and exit. Useful for smoke tests.",
+)
+@click.option(
+    "--active-interval",
+    "active_interval_s",
+    type=float,
+    default=5.0,
+    show_default=True,
+    help="Seconds between samples when the user is active.",
+)
+@click.option(
+    "--idle-interval",
+    "idle_interval_s",
+    type=float,
+    default=60.0,
+    show_default=True,
+    help="Seconds between samples when the user is idle.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_start(
+    foreground: bool,
+    once: bool,
+    active_interval_s: float,
+    idle_interval_s: float,
+    as_json: bool,
+) -> None:
+    """Start the proactive monitoring daemon."""
+    import logging
+    import os
+
+    from newton.proactive import daemon as daemon_module
+    from newton.proactive.daemon import ProactiveDaemon
+    from newton.proactive.pidfile import clear_pidfile, inspect, write_pidfile
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
+    pidpath = _proactive_pidfile_path()
+    status = inspect(pidpath)
+    if status.running:
+        click.secho(
+            f"error: proactive daemon already running (PID {status.pid})",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+    if status.stale:
+        click.secho(
+            f"removing stale PID file (PID {status.pid} no longer running)",
+            fg="yellow",
+        )
+        clear_pidfile(pidpath)
+
+    # Pass monitors explicitly (instead of relying on the dataclass's
+    # default_factory) so tests can swap default_monitors via monkeypatch.
+    daemon = ProactiveDaemon(
+        monitors=daemon_module.default_monitors(),
+        active_interval_s=active_interval_s,
+        idle_interval_s=idle_interval_s,
+    )
+
+    if once:
+        report = daemon.tick_once()
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "metrics_written": report.metrics_written,
+                        "metrics_skipped": report.metrics_skipped,
+                        "per_monitor": report.per_monitor,
+                    },
+                    indent=2,
+                )
+            )
+            return
+        click.echo(
+            f"one tick: {report.metrics_written} written, "
+            f"{report.metrics_skipped} skipped"
+        )
+        for name, value in report.per_monitor.items():
+            shown = f"{value:.2f}" if isinstance(value, float) else "—"
+            click.echo(f"  {name:10s} {shown}")
+        return
+
+    if not foreground:
+        # Standard Unix double-fork: parent → fork1 (exits) → setsid →
+        # fork2 (the daemon body). After this, only the daemon process
+        # continues; everyone else has returned to the shell.
+        if os.fork() != 0:
+            return
+        os.setsid()
+        if os.fork() != 0:
+            os._exit(0)
+
+    write_pidfile(pidpath)
+    try:
+        daemon.install_signal_handlers()
+        if not as_json:
+            click.echo(
+                f"proactive daemon started (PID {os.getpid()})\n"
+                f"sampling: {active_interval_s:.0f}s active, "
+                f"{idle_interval_s:.0f}s idle"
+            )
+        daemon.run_forever()
+    finally:
+        clear_pidfile(pidpath)
+
+
+@proactive.command("stop")
+@click.option(
+    "--timeout",
+    type=float,
+    default=10.0,
+    show_default=True,
+    help="Seconds to wait for the daemon to exit before giving up.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_stop(timeout: float, as_json: bool) -> None:
+    """Stop the running proactive daemon (SIGTERM, then wait)."""
+    import os
+    import time
+
+    from newton.proactive.pidfile import clear_pidfile, inspect
+
+    pidpath = _proactive_pidfile_path()
+    status = inspect(pidpath)
+
+    if status.pid is None:
+        if as_json:
+            click.echo(json.dumps({"stopped": False, "reason": "no pidfile"}))
+            return
+        click.echo("no proactive daemon running (no PID file)")
+        return
+
+    if status.stale:
+        clear_pidfile(pidpath)
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "stopped": False,
+                        "reason": "stale pidfile cleared",
+                        "pid": status.pid,
+                    }
+                )
+            )
+            return
+        click.echo(f"PID {status.pid} not running; cleared stale PID file")
+        return
+
+    try:
+        os.kill(status.pid, 15)  # SIGTERM
+    except ProcessLookupError:
+        clear_pidfile(pidpath)
+        if as_json:
+            click.echo(json.dumps({"stopped": False, "reason": "process vanished"}))
+            return
+        click.echo(f"PID {status.pid} already gone")
+        return
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not inspect(pidpath).running:
+            if as_json:
+                click.echo(json.dumps({"stopped": True, "pid": status.pid}))
+                return
+            click.echo(f"stopped proactive daemon (PID {status.pid})")
+            return
+        time.sleep(0.1)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "stopped": False,
+                    "reason": "timeout",
+                    "pid": status.pid,
+                    "timeout_s": timeout,
+                }
+            )
+        )
+        sys.exit(1)
+    click.secho(
+        f"timed out waiting for PID {status.pid} to exit after {timeout:.1f}s",
+        fg="red",
+        err=True,
+    )
+    sys.exit(1)
+
+
+@proactive.command("status")
+@click.option("--json", "as_json", is_flag=True)
+def proactive_status(as_json: bool) -> None:
+    """Report whether the daemon is running and what it has sampled."""
+    from sqlalchemy import func, select
+
+    from newton.db import get_session
+    from newton.models.system_metric import SystemMetric
+    from newton.proactive.pidfile import inspect
+
+    pidpath = _proactive_pidfile_path()
+    pid_status = inspect(pidpath)
+
+    counts: dict[str, int] = {}
+    last_sample_iso: str | None = None
+    with get_session() as session:
+        rows = session.execute(
+            select(SystemMetric.metric_type, func.count()).group_by(
+                SystemMetric.metric_type
+            )
+        ).all()
+        counts = {row[0]: int(row[1]) for row in rows}
+
+        last = session.execute(
+            select(SystemMetric.captured_at)
+            .order_by(SystemMetric.captured_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if last is not None:
+            last_sample_iso = last.isoformat()
+
+    payload = {
+        "running": pid_status.running,
+        "pid": pid_status.pid,
+        "stale_pidfile": pid_status.stale,
+        "pidfile": str(pidpath),
+        "samples_per_type": counts,
+        "samples_total": sum(counts.values()),
+        "last_sample_at": last_sample_iso,
+    }
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+
+    console = Console()
+    if pid_status.running:
+        console.print(f"[green]running[/green] (PID {pid_status.pid})")
+    elif pid_status.stale:
+        console.print(f"[yellow]stale PID file[/yellow] (PID {pid_status.pid})")
+    else:
+        console.print("[dim]not running[/dim]")
+
+    total = payload["samples_total"]
+    console.print(f"samples: {total} total")
+    for name, count in sorted(counts.items()):
+        console.print(f"  {name:12s} {count}")
+    if last_sample_iso:
+        console.print(f"last sample: {last_sample_iso}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

@@ -1,0 +1,39 @@
+# Newton proactive monitoring daemon — systemd user unit.
+#
+# Install:
+#     mkdir -p ~/.config/systemd/user
+#     cp scripts/newton/newton-proactive.service ~/.config/systemd/user/
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now newton-proactive.service
+#
+# Status:
+#     systemctl --user status newton-proactive.service
+#     journalctl --user -u newton-proactive.service -f
+#
+# On WSL2, `systemctl --user` requires systemd-as-pid-1 (recent WSL versions
+# expose this). If unavailable, run `uv run newton proactive start` directly
+# in a terminal — the daemon supports a foreground mode for exactly this case.
+#
+# ExecStart and WorkingDirectory are written as templates. Replace the two
+# `%h/newton-v4` paths with the absolute path to the checkout before
+# installing, or use systemd's environment override:
+#     systemctl --user set-environment NEWTON_DIR=/abs/path/to/newton-v4
+
+[Unit]
+Description=Newton proactive monitoring daemon
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/newton-v4
+ExecStart=/usr/bin/env uv run newton proactive start --foreground
+Restart=on-failure
+RestartSec=5s
+
+# Per-process logging — journal picks these up.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=newton-proactive
+
+[Install]
+WantedBy=default.target
