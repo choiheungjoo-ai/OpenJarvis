@@ -37,6 +37,10 @@ class ChatSession(Base):
         server_default=func.current_timestamp()
     )
     ended_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    # When this conversation was condensed into a vault note
+    # (block 3.10). NULL = not yet summarized.
+    summarized_at: Mapped[datetime | None] = mapped_column(nullable=True)
     # Channel, device, locale — free-form JSON encoded as TEXT.
     metadata_json: Mapped[str | None] = mapped_column(nullable=True)
 

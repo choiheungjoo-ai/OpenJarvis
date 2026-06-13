@@ -56,6 +56,7 @@ class VaultLayout(BaseModel):
     notes_dir: str = "notes"
     shared_dir: str = "shared"
     quarantine_dir: str = "_guest_quarantine"
+    auto_dir: str = "_auto"
 
 
 class VaultConfig(BaseModel):

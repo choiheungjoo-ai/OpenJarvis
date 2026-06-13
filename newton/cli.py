@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -1445,6 +1446,106 @@ def biasing_clear(user_id: str, yes: bool) -> None:
         user.stt_bias_dict_json = "[]"
 
     click.echo(f"cleared biasing dictionary for {user_id}")
+
+
+# -----------------------------------------------------------------------------
+# memory group
+# -----------------------------------------------------------------------------
+
+
+@cli.group()
+def memory() -> None:
+    """Long-term memory: summarize conversations and recall them."""
+
+
+@memory.command("summarize-session")
+@click.argument("session_id")
+@click.option("--json", "as_json", is_flag=True)
+def memory_summarize_session(session_id: str, as_json: bool) -> None:
+    """Condense a session into a searchable vault note."""
+    import asyncio
+
+    from newton.db import get_session
+    from newton.memory.summarizer import FakeSummarizer, summarize_session
+    from newton.system_config import load_system_config
+
+    config = load_system_config()
+    vault_root = Path(config.vault.root)
+    auto_dir = config.vault.layout.auto_dir
+
+    async def _run() -> Path | None:
+        with get_session() as session:
+            return await summarize_session(
+                session,
+                session_id,
+                FakeSummarizer(),
+                vault_root,
+                auto_dir=auto_dir,
+            )
+
+    try:
+        path = asyncio.run(_run())
+    except Exception as e:  # noqa: BLE001
+        click.secho(f"error: {type(e).__name__}: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if path is None:
+        click.secho(f"error: unknown session {session_id!r}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps({"path": str(path)}, indent=2))
+        return
+    click.echo(f"Created: {path}")
+
+
+@memory.command("recall")
+@click.argument("query")
+@click.option("--user", "user_id", required=True)
+@click.option("--persona", "persona_id", required=True)
+@click.option("--limit", default=5, show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+def memory_recall(
+    query: str, user_id: str, persona_id: str, limit: int, as_json: bool
+) -> None:
+    """Recall past conversation summaries relevant to a query."""
+    import asyncio
+
+    from newton.vault.search import search
+
+    try:
+        hits = asyncio.run(search(query, user_id, persona_id, limit=limit))
+    except Exception as e:  # noqa: BLE001
+        click.secho(f"error: {type(e).__name__}: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "path": h.path,
+                        "score": h.score,
+                        "text": h.text,
+                        "tags": h.tags,
+                    }
+                    for h in hits
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+    console = Console()
+    if not hits:
+        console.print("[dim]no matching memories[/dim]")
+        return
+    console.print(f"[bold]{len(hits)} memory(ies)[/bold] for {query!r}:")
+    for h in hits:
+        console.print(
+            f"  [green]{h.score:.3f}[/green]  {h.path} [dim]#{h.chunk_index}[/dim]"
+        )
+        console.print(f"    {h.text}")
 
 
 def main() -> None:
