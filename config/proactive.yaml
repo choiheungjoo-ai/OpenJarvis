@@ -129,3 +129,28 @@ patterns:
     # The default A→B window. "vault_search then vault_write within
     # 10 min" uses this if a more specific value isn't requested.
     default_window_seconds: 600
+
+# ── Anticipation engine (block 4 step 4.4) ───────────────────────────
+#
+# Final score = stored confidence × relevance(now, pattern).
+# A prediction fires if final >= thresholds[mode].
+anticipation:
+  # Fallback mode used until users.proactive_mode lands (step 4.8).
+  default_mode: smart
+
+  # Time-proximity relevance: Gaussian around the predicted eta.
+  # σ = 30 minutes ⇒ relevance ≈0.61 at ±30 min, ≈0.13 at ±60 min.
+  relevance_sigma_minutes: 30.0
+
+  # A sequence pattern's A-event must have run within this many
+  # seconds for the pattern to count as relevant *now*.
+  sequence_relevance_seconds: 600
+
+  # Top-N cap on returned predictions.
+  max_results: 5
+
+  thresholds:
+    off: 1.01           # > 1.0 so no score ever crosses
+    minimal: 0.9
+    smart: 0.7
+    aggressive: 0.5

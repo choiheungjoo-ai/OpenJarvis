@@ -2362,6 +2362,75 @@ def proactive_seed_test_data(
         console.print(f"  expect: {p}")
 
 
+@proactive.command("predict")
+@click.option("--user", "user_id", default="sir", show_default=True)
+@click.option(
+    "--mode",
+    type=click.Choice(["off", "minimal", "smart", "aggressive"]),
+    default=None,
+    help="Override the configured default mode for this prediction.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_predict(user_id: str, mode: str | None, as_json: bool) -> None:
+    """Show ranked predictions for ``user_id`` right now."""
+    from newton.db import get_session
+    from newton.proactive.anticipation import AnticipationEngine
+    from newton.proactive.config import load_proactive_config
+    from newton.proactive.context import assemble
+
+    cfg = load_proactive_config()
+    engine = AnticipationEngine(
+        config=cfg.anticipation,
+        pattern_timezone=cfg.patterns.pattern_timezone,
+    )
+    with get_session() as session:
+        ctx = assemble(
+            session,
+            user_id,
+            lookback_seconds=cfg.anticipation.sequence_relevance_seconds,
+        )
+        preds = engine.predict(session, ctx, mode=mode)
+
+    payload = [
+        {
+            "pattern_id": p.pattern_id,
+            "pattern_type": p.pattern_type,
+            "action": p.action,
+            "final": p.final,
+            "eta": p.eta.isoformat() if p.eta else None,
+            "notification_text": p.notification_text,
+            "rationale": {
+                "confidence": p.rationale.confidence,
+                "relevance": p.rationale.relevance,
+                "mode": p.rationale.mode,
+                "threshold": p.rationale.threshold,
+                "threshold_passed": p.rationale.threshold_passed,
+                "factors": p.rationale.factors,
+                "explain": p.rationale.explain(),
+            },
+        }
+        for p in preds
+    ]
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    if not preds:
+        console.print(
+            f"[dim]no predictions for {user_id} "
+            f"(mode={mode or cfg.anticipation.default_mode})[/dim]"
+        )
+        return
+    for i, p in enumerate(preds, 1):
+        eta_str = p.eta.isoformat() if p.eta else "—"
+        console.print(
+            f"[bold]{i}.[/bold] {p.action}  final={p.final:.3f}  eta={eta_str}"
+        )
+        console.print(f"   text: {p.notification_text}")
+        console.print(f"   why : {p.rationale.explain()}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

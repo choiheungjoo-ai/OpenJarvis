@@ -130,12 +130,85 @@ class PatternsConfig(BaseModel):
         return v
 
 
+class ModeThresholds(BaseModel):
+    """Per-mode score threshold above which a prediction is allowed to fire.
+
+    The anticipation engine compares ``confidence × relevance`` against
+    ``thresholds[mode]``. ``off`` uses a value > 1.0 so nothing ever
+    crosses — encoding "never fire" in the same comparison without a
+    separate code path.
+    """
+
+    off: float = 1.01
+    minimal: float = 0.9
+    smart: float = 0.7
+    aggressive: float = 0.5
+
+    @field_validator("off", "minimal", "smart", "aggressive")
+    @classmethod
+    def _threshold_range(cls, v: float) -> float:
+        if v < 0.0:
+            raise ValueError("mode thresholds must be >= 0")
+        return v
+
+
+class AnticipationConfig(BaseModel):
+    """Knobs for the anticipation engine (step 4.4)."""
+
+    # Default proactive mode applied when ``users.proactive_mode``
+    # doesn't exist yet (step 4.8 adds the column). Once the column
+    # lands, that value wins; this is just the fallback.
+    default_mode: str = "smart"
+
+    # Time-proximity relevance: a Gaussian centred at the predicted
+    # eta with this stddev (minutes). At σ minutes from eta, relevance
+    # is ≈0.61; at 2σ ≈0.13.
+    relevance_sigma_minutes: float = 30.0
+
+    # Sequence patterns: an A-event run within the last
+    # ``sequence_relevance_seconds`` makes the pattern fully relevant
+    # (relevance = 1.0). Beyond that, relevance is 0. Block 4.5 may
+    # tighten this; the default mirrors patterns/sequence's default
+    # window.
+    sequence_relevance_seconds: int = 600
+
+    # Cap on predictions returned by predict(). Keeps the CLI surface
+    # readable and gives the scheduler a stable top-N to consider.
+    max_results: int = 5
+
+    thresholds: ModeThresholds = Field(default_factory=ModeThresholds)
+
+    @field_validator("relevance_sigma_minutes")
+    @classmethod
+    def _positive_sigma(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("relevance_sigma_minutes must be > 0")
+        return v
+
+    @field_validator("sequence_relevance_seconds", "max_results")
+    @classmethod
+    def _positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+    @field_validator("default_mode")
+    @classmethod
+    def _valid_mode(cls, v: str) -> str:
+        if v not in {"off", "minimal", "smart", "aggressive"}:
+            raise ValueError(
+                f"default_mode must be one of off/minimal/smart/aggressive, got {v!r}"
+            )
+        return v
+
+
 class ProactiveConfig(BaseModel):
     """Top-level proactive engine configuration."""
 
     thresholds: list[ThresholdRule] = Field(default_factory=list)
     cooldown_minutes: int = 15
     patterns: PatternsConfig = Field(default_factory=PatternsConfig)
+    anticipation: AnticipationConfig = Field(default_factory=AnticipationConfig)
 
     @field_validator("cooldown_minutes")
     @classmethod
@@ -225,6 +298,8 @@ def load_proactive_config() -> ProactiveConfig:
 
 
 __all__ = [
+    "AnticipationConfig",
+    "ModeThresholds",
     "PatternsConfig",
     "ProactiveConfig",
     "ProactiveConfigError",
