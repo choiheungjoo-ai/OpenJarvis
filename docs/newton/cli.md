@@ -31,7 +31,16 @@ newton
 ├── personas list [--json]   list personas (after seeding)
 ├── users list    [--json]   list users (after seeding)
 ├── seed          [--json]   insert initial personas + users
-└── init          [--json]   migrate + seed in one shot
+├── init          [--json]   migrate + seed in one shot
+├── tools                    (block 2) list / run / show / policy
+├── providers                (block 2) list / swap / active / usage
+├── vault                    (block 3) RAG over the note vault
+│   ├── index     [--json]   scan + chunk + embed + upsert to Qdrant
+│   ├── search Q  --user --persona   ACL-filtered semantic search
+│   └── quarantine           list / review guest activity
+├── persona route --user --voice-stage2   resolve + render prompt
+├── voice biasing            show / clear a user's STT bias dict
+└── memory                   (block 3) summarize-session / recall
 ```
 
 ## Conventions
@@ -188,9 +197,7 @@ the correct behaviour for inspecting what's on disk.
 
 Reserved namespaces for upcoming blocks:
 
-- `newton vault`     — index, search, snapshot (block 6)
-- `newton tools`     — list registered tools, run a dry-call (block 2)
-- `newton proactive` — show recent system metrics, fire a test nudge (block 8)
-- `newton voice`     — list TTS routing, regenerate sample (block 4)
+- `newton proactive` — recent system metrics, fire a test nudge (block 8)
+- `newton voice tts` — TTS routing, regenerate sample (block 4)
 
-These will be added in their respective blocks.
+Delivered since block 1: `newton tools` / `newton providers` (block 2); `newton vault`, `newton persona`, `newton voice biasing`, `newton memory` (block 3).
