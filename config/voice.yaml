@@ -55,11 +55,11 @@ tts:
     - persona: jarvis
       language: ko
       engine: qwen3_tts_1.7b
-      voice_reference: jarvis/ko-001.wav
+      voice_reference: jarvis/samples/ko/ko-001.wav
     - persona: jarvis
       language: en
       engine: chatterbox
-      voice_reference: jarvis/chatterbox-reference.wav
+      voice_reference: jarvis/samples/en/en-001.wav
     - persona: friday
       language: ko
       engine: qwen3_tts_1.7b

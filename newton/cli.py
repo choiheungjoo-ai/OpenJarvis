@@ -1559,6 +1559,116 @@ def biasing_clear(user_id: str, yes: bool) -> None:
     click.echo(f"cleared biasing dictionary for {user_id}")
 
 
+# ── voice samples (step 5.4) ────────────────────────────────────────────
+
+
+def _project_root_path() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _voice_root_path() -> Path:
+    """Where the gitignored persona samples live."""
+    from newton.voice.config import load_voice_config
+
+    cfg = load_voice_config()
+    root = Path(cfg.tts.voice_root)
+    return root if root.is_absolute() else _project_root_path() / root
+
+
+def _docs_root_path() -> Path:
+    return _project_root_path() / "docs"
+
+
+@voice.group("samples")
+def voice_samples() -> None:
+    """Inspect persona TTS samples + consent records (step 5.4)."""
+
+
+@voice_samples.command("list")
+@click.argument("persona_id")
+@click.option("--json", "as_json", is_flag=True)
+def voice_samples_list(persona_id: str, as_json: bool) -> None:
+    """List per-language WAV samples on disk for ``persona_id``."""
+    from newton.voice.samples import list_samples
+
+    files_by_lang = list_samples(persona_id, _voice_root_path())
+
+    if as_json:
+        payload = {
+            lang: [
+                {
+                    "path": str(f.path),
+                    "duration_seconds": f.duration_seconds,
+                    "sample_rate": f.sample_rate,
+                    "n_channels": f.n_channels,
+                    "bytes": f.bytes_total,
+                }
+                for f in files
+            ]
+            for lang, files in files_by_lang.items()
+        }
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    if not files_by_lang:
+        console.print(f"[dim]no samples on disk for {persona_id}[/dim]")
+        return
+    root = _voice_root_path() / persona_id / "samples"
+    for lang, files in files_by_lang.items():
+        console.print(f"[bold]{lang}[/bold]  {len(files)} sample(s) in {root / lang}")
+        for f in files:
+            dur = f"{f.duration_seconds:.1f}s" if f.duration_seconds else "—"
+            sr = f"{f.sample_rate}Hz" if f.sample_rate else "—"
+            ch = f"{f.n_channels}ch" if f.n_channels else "—"
+            console.print(f"  {f.path.name:25s} {dur:>6s}  {sr:>9s}  {ch}")
+
+
+@voice_samples.command("show")
+@click.argument("persona_id")
+@click.option("--json", "as_json", is_flag=True)
+def voice_samples_show(persona_id: str, as_json: bool) -> None:
+    """Show the consent record and inventory for ``persona_id``."""
+    from newton.voice.samples import summarize
+
+    summary = summarize(persona_id, _voice_root_path(), _docs_root_path())
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "persona_id": summary.persona_id,
+                    "voice_root": str(summary.voice_root),
+                    "samples_root": str(summary.samples_root),
+                    "consent_doc": (
+                        str(summary.consent_doc) if summary.consent_doc else None
+                    ),
+                    "has_consent_doc": summary.has_consent_doc,
+                    "total_count": summary.total_count,
+                    "files_by_language": {
+                        lang: [str(f.path) for f in files]
+                        for lang, files in summary.files_by_language.items()
+                    },
+                },
+                indent=2,
+            )
+        )
+        return
+
+    console = Console()
+    console.print(f"[bold]{persona_id}[/bold]  ({summary.total_count} samples)")
+    console.print(f"  samples_root: {summary.samples_root}")
+    if summary.has_consent_doc:
+        console.print(f"  consent     : [green]{summary.consent_doc}[/green]")
+    else:
+        console.print(
+            f"  consent     : [red]missing[/red]  "
+            f"(expected at docs/newton/voice-samples/{persona_id}.md)"
+        )
+    for lang, files in summary.files_by_language.items():
+        console.print(f"  {lang}: {len(files)} samples")
+
+
 # -----------------------------------------------------------------------------
 # memory group
 # -----------------------------------------------------------------------------
