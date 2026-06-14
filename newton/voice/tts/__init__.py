@@ -16,5 +16,20 @@ or torch installed — the heavy bits load on the first ``synthesize``.
 
 from newton.voice.tts.base import TTS, TTSResult, save_wav
 from newton.voice.tts.qwen3 import Qwen3TTS
+from newton.voice.tts.router import (
+    TTSRouter,
+    TTSRouteResolution,
+    TTSRoutingError,
+    default_engine_factory,
+)
 
-__all__ = ["TTS", "Qwen3TTS", "TTSResult", "save_wav"]
+__all__ = [
+    "TTS",
+    "Qwen3TTS",
+    "TTSResult",
+    "TTSRouteResolution",
+    "TTSRouter",
+    "TTSRoutingError",
+    "default_engine_factory",
+    "save_wav",
+]

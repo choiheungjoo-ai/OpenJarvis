@@ -38,3 +38,33 @@ stage1:
     # filters door slams and single hand claps.
     min_gap_ms: 90
     max_gap_ms: 500
+
+# ── TTS routing (block 5 step 5.5) ─────────────────────────────────────
+#
+# Persona + language → engine + voice sample. The router caches
+# engine instances; the engine itself stays lazy until its first
+# synthesize. Voice references are relative to ``voice_root`` and
+# may not exist yet (samples come from step 5.4).
+tts:
+  voice_root: data/voices
+  routes:
+    - persona: butler
+      language: any
+      engine: qwen3_tts_0.6b
+      voice_reference: butler/ko-001.wav
+    - persona: jarvis
+      language: ko
+      engine: qwen3_tts_1.7b
+      voice_reference: jarvis/ko-001.wav
+    - persona: jarvis
+      language: en
+      engine: chatterbox
+      voice_reference: jarvis/chatterbox-reference.wav
+    - persona: friday
+      language: ko
+      engine: qwen3_tts_1.7b
+      voice_reference: friday/ko-001.wav
+    - persona: friday
+      language: en
+      engine: qwen3_tts_1.7b
+      voice_reference: friday/en-001.wav

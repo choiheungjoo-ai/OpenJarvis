@@ -134,12 +134,65 @@ class Stage1Config(BaseModel):
     clap: ClapConfig = Field(default_factory=ClapConfig)
 
 
+class TTSRouteConfig(BaseModel):
+    """One persona+language → engine+sample binding (step 5.5)."""
+
+    persona: str
+    # ``any`` is a wildcard matched by the router's resolve().
+    language: str = "any"
+    engine: str
+    # Path relative to ``tts.voice_root``. May not exist yet (samples
+    # land in step 5.4); the router passes the path through anyway.
+    voice_reference: str | None = None
+
+
+class TTSConfig(BaseModel):
+    """Voice routing + sample-root for the TTS layer (step 5.5)."""
+
+    voice_root: str = "data/voices"
+    routes: list[TTSRouteConfig] = Field(
+        default_factory=lambda: [
+            TTSRouteConfig(
+                persona="butler",
+                language="any",
+                engine="qwen3_tts_0.6b",
+                voice_reference="butler/ko-001.wav",
+            ),
+            TTSRouteConfig(
+                persona="jarvis",
+                language="ko",
+                engine="qwen3_tts_1.7b",
+                voice_reference="jarvis/ko-001.wav",
+            ),
+            TTSRouteConfig(
+                persona="jarvis",
+                language="en",
+                engine="chatterbox",
+                voice_reference="jarvis/chatterbox-reference.wav",
+            ),
+            TTSRouteConfig(
+                persona="friday",
+                language="ko",
+                engine="qwen3_tts_1.7b",
+                voice_reference="friday/ko-001.wav",
+            ),
+            TTSRouteConfig(
+                persona="friday",
+                language="en",
+                engine="qwen3_tts_1.7b",
+                voice_reference="friday/en-001.wav",
+            ),
+        ]
+    )
+
+
 class VoiceConfig(BaseModel):
     """Top-level voice configuration."""
 
     audio: AudioConfig = Field(default_factory=AudioConfig)
     vad: VADConfig = Field(default_factory=VADConfig)
     stage1: Stage1Config = Field(default_factory=Stage1Config)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
 
 
 class VoiceConfigError(RuntimeError):
@@ -194,6 +247,8 @@ __all__ = [
     "AudioConfig",
     "ClapConfig",
     "Stage1Config",
+    "TTSConfig",
+    "TTSRouteConfig",
     "VADConfig",
     "VoiceConfig",
     "VoiceConfigError",
