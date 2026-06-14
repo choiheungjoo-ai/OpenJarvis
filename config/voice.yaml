@@ -68,3 +68,9 @@ tts:
       language: en
       engine: qwen3_tts_1.7b
       voice_reference: friday/en-001.wav
+
+# ── Multi-speaker session lock (block 5 step 5.10) ─────────────────────
+session_lock:
+  # Seconds of silence from the locked user before the session unlocks
+  # and the next Stage-1 wake-word / clap starts fresh.
+  timeout_seconds: 30

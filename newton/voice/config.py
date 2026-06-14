@@ -186,6 +186,21 @@ class TTSConfig(BaseModel):
     )
 
 
+class SessionLockConfig(BaseModel):
+    """Multi-speaker session-lock policy (step 5.10)."""
+
+    # Seconds of silence from the locked user before the session
+    # unlocks. The default matches the design doc (voice.md §2.8).
+    timeout_seconds: int = 30
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        return v
+
+
 class VoiceConfig(BaseModel):
     """Top-level voice configuration."""
 
@@ -193,6 +208,7 @@ class VoiceConfig(BaseModel):
     vad: VADConfig = Field(default_factory=VADConfig)
     stage1: Stage1Config = Field(default_factory=Stage1Config)
     tts: TTSConfig = Field(default_factory=TTSConfig)
+    session_lock: SessionLockConfig = Field(default_factory=SessionLockConfig)
 
 
 class VoiceConfigError(RuntimeError):
@@ -246,6 +262,7 @@ def load_voice_config() -> VoiceConfig:
 __all__ = [
     "AudioConfig",
     "ClapConfig",
+    "SessionLockConfig",
     "Stage1Config",
     "TTSConfig",
     "TTSRouteConfig",
