@@ -46,11 +46,14 @@ from newton.proactive.config import (
 # Prefix encoding
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Anchored at the start; matches a single ``[kind]`` token followed by
-# exactly one space. The kind itself is restricted to lowercase letters,
-# digits, and underscores (ThresholdRule._kind_is_identifier enforces
-# the same alphabet at config-load time).
+# Two markers share the same strip helper so every surface stays
+# uniform. ``_ALERT_PREFIX_RE`` matches the alert ``[<kind>]`` shape
+# (and exposes the kind via group 1 for ``extract_kind``).
+# ``_DISPLAY_STRIP_RE`` matches *either* the alert prefix or the
+# recall marker (``[recall:<note_id>]``, step 4.9) — used only by
+# :func:`display_text`.
 _ALERT_PREFIX_RE = re.compile(r"^\[([a-z0-9_]+)\]\s")
+_DISPLAY_STRIP_RE = re.compile(r"^\[(?:[a-z0-9_]+|recall:\d+)\]\s")
 
 
 def _store_text(kind: str, text: str) -> str:
@@ -59,13 +62,12 @@ def _store_text(kind: str, text: str) -> str:
 
 
 def display_text(stored: str) -> str:
-    """Strip the storage-only ``[kind]`` prefix from a notification row.
+    """Strip any storage-only marker (``[kind]`` or ``[recall:N]``).
 
     Every surface that shows or speaks a notification must call this.
-    A stored string with no prefix (e.g. a future row written by a
-    different code path) is returned unchanged.
+    A stored string with no marker is returned unchanged.
     """
-    return _ALERT_PREFIX_RE.sub("", stored, count=1)
+    return _DISPLAY_STRIP_RE.sub("", stored, count=1)
 
 
 def extract_kind(stored: str) -> str | None:

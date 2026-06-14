@@ -283,6 +283,45 @@ class ReactionLearningConfig(BaseModel):
         return v
 
 
+class RecallConfig(BaseModel):
+    """Vault-driven proactive recall (step 4.9).
+
+    When sir's new message arrives, ``recall.check`` semantic-searches
+    the ``_auto/conversations/`` summaries and surfaces a notification
+    if the top match exceeds ``min_score``.
+    """
+
+    enabled: bool = True
+    # Minimum semantic score for the top match to trigger a recall.
+    # 0.85 in the design doc — pretty conservative, so false-positives
+    # stay rare. Tune downward as the summarizer matures.
+    min_score: float = 0.85
+    # Modes in which recall is allowed to fire. minimal / off → no.
+    enabled_modes: list[str] = Field(default_factory=lambda: ["smart", "aggressive"])
+    # Same path-as-tag the auto-summarizer wrote into. Path prefix
+    # filtering happens after retrieval (Qdrant has no path index).
+    auto_subdir: str = "conversations"
+    # Cooldown: don't re-surface the same vault note within X minutes.
+    note_cooldown_minutes: int = 60
+    # How many hits to fetch from the vault before applying the
+    # path/score filter.
+    fetch_limit: int = 5
+
+    @field_validator("min_score")
+    @classmethod
+    def _score_in_unit(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("min_score must be in [0, 1]")
+        return v
+
+    @field_validator("fetch_limit", "note_cooldown_minutes")
+    @classmethod
+    def _positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+
 class ProactiveConfig(BaseModel):
     """Top-level proactive engine configuration."""
 
@@ -292,6 +331,7 @@ class ProactiveConfig(BaseModel):
     anticipation: AnticipationConfig = Field(default_factory=AnticipationConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     reactions: ReactionLearningConfig = Field(default_factory=ReactionLearningConfig)
+    recall: RecallConfig = Field(default_factory=RecallConfig)
 
     @field_validator("cooldown_minutes")
     @classmethod
@@ -388,6 +428,7 @@ __all__ = [
     "ProactiveConfigError",
     "QuietHoursConfig",
     "ReactionLearningConfig",
+    "RecallConfig",
     "SchedulerConfig",
     "SequencePatternConfig",
     "ThresholdRule",

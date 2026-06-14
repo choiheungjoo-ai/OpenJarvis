@@ -2772,6 +2772,86 @@ def proactive_mode(
     click.echo(f"{user_id} → {mode}{extra}")
 
 
+@proactive.command("recall-check")
+@click.argument("message")
+@click.option("--user", "user_id", default="sir", show_default=True)
+@click.option("--persona", "persona_id", default="jarvis", show_default=True)
+@click.option(
+    "--mode",
+    type=click.Choice(["off", "minimal", "smart", "aggressive"]),
+    default=None,
+    help="Override the user's stored mode for this check.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_recall_check(
+    message: str,
+    user_id: str,
+    persona_id: str,
+    mode: str | None,
+    as_json: bool,
+) -> None:
+    """Run one vault-driven recall check against ``message``.
+
+    Useful for verification before the message-insert hook is wired
+    in a later block. Fires a real proactive_notifications row when
+    the top vault match crosses the configured threshold.
+    """
+    import asyncio
+
+    from newton.db import get_session
+    from newton.proactive.config import load_proactive_config
+    from newton.proactive.modes import resolve_mode
+    from newton.proactive.recall import check
+
+    cfg = load_proactive_config()
+
+    async def _run() -> dict:
+        with get_session() as session:
+            effective_mode = (
+                mode
+                or resolve_mode(
+                    session, user_id, default=cfg.anticipation.default_mode
+                ).mode
+            )
+            event = await check(
+                session,
+                message,
+                user_id,
+                persona_id,
+                mode=effective_mode,
+                config=cfg.recall,
+            )
+            return {
+                "fired": event.fired,
+                "reason": event.reason,
+                "notification_id": event.notification_id,
+                "note_id": event.note_id,
+                "score": event.score,
+                "mode": effective_mode,
+            }
+
+    try:
+        payload = asyncio.run(_run())
+    except Exception as e:  # noqa: BLE001
+        click.secho(f"error: {type(e).__name__}: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    if payload["fired"]:
+        console.print(
+            f"[green]fired[/green]  notification #{payload['notification_id']} "
+            f"(note {payload['note_id']}, score {payload['score']:.3f})"
+        )
+    else:
+        score = payload["score"]
+        s = f" score={score:.3f}" if score is not None else ""
+        console.print(f"[dim]no recall[/dim]  reason={payload['reason']}{s}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

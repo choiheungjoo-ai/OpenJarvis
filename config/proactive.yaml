@@ -190,3 +190,17 @@ reactions:
   # auto-flipped to 'ignored' (a soft signal — lighter weight than
   # an explicit reject).
   auto_ignore_minutes: 5
+
+# ── Vault-driven proactive recall (block 4 step 4.9) ─────────────────
+recall:
+  enabled: true
+  # Semantic score threshold for the top vault match.
+  min_score: 0.85
+  # Recall only fires in these modes — never minimal/off.
+  enabled_modes: ["smart", "aggressive"]
+  # Subdirectory under _auto/ that the session summarizer writes to.
+  auto_subdir: conversations
+  # Don't re-surface the same vault note within this many minutes.
+  note_cooldown_minutes: 60
+  # Top-N hits to fetch from the vault before applying the path filter.
+  fetch_limit: 5
