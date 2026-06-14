@@ -39,7 +39,10 @@ newton
 │   ├── search Q  --user --persona   ACL-filtered semantic search
 │   └── quarantine           list / review guest activity
 ├── persona route --user --voice-stage2   resolve + render prompt
-├── voice biasing            show / clear a user's STT bias dict
+├── voice                    (blocks 3 + 5) STT biasing, TTS samples, zero-shot clone
+│   ├── biasing              show / clear a user's STT bias dict (block 3)
+│   ├── samples              list / show donor recordings + consent (block 5.4)
+│   └── tts                  zero-shot clone CLI — persona+lang+text → WAV (block 5.5)
 ├── memory                   (block 3) summarize-session / recall
 └── proactive                (block 4) monitoring + alerts + patterns + delivery
     ├── start                background sampler + alert + scheduler loop
