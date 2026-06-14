@@ -104,17 +104,17 @@ def default_engine_factory(name: str) -> TTS:
     place that knows about concrete engine classes; the router stays
     string-keyed.
     """
-    from newton.voice.tts.qwen3 import Qwen3TTS  # noqa: PLC0415 — local import
+    # Local imports keep the router import-light when only one
+    # engine is needed.
+    from newton.voice.tts.chatterbox import ChatterboxTTS  # noqa: PLC0415
+    from newton.voice.tts.qwen3 import Qwen3TTS  # noqa: PLC0415
 
     if name == "qwen3_tts_0.6b":
         return Qwen3TTS(model_size="0.6B")
     if name == "qwen3_tts_1.7b":
         return Qwen3TTS(model_size="1.7B")
     if name == "chatterbox":
-        # Step 5.6 ships the Chatterbox adapter. Until then, the
-        # factory is honest about the gap rather than silently
-        # falling back to Qwen3.
-        raise NotImplementedError("Chatterbox adapter not yet wired (block 5 step 5.6)")
+        return ChatterboxTTS()
     raise ValueError(f"unknown TTS engine: {name!r}")
 
 

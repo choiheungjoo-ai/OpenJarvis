@@ -15,6 +15,7 @@ or torch installed — the heavy bits load on the first ``synthesize``.
 """
 
 from newton.voice.tts.base import TTS, TTSResult, save_wav
+from newton.voice.tts.chatterbox import ChatterboxTTS
 from newton.voice.tts.qwen3 import Qwen3TTS
 from newton.voice.tts.router import (
     TTSRouter,
@@ -25,6 +26,7 @@ from newton.voice.tts.router import (
 
 __all__ = [
     "TTS",
+    "ChatterboxTTS",
     "Qwen3TTS",
     "TTSResult",
     "TTSRouteResolution",

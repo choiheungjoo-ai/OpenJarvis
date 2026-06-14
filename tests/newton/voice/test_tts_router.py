@@ -228,9 +228,10 @@ def test_default_factory_constructs_qwen3_engines():
     assert e_17.name == "qwen3_tts_1.7b"
 
 
-def test_default_factory_refuses_chatterbox_until_5_6():
-    with pytest.raises(NotImplementedError, match="Chatterbox"):
-        default_engine_factory("chatterbox")
+def test_default_factory_constructs_chatterbox():
+    """Step 5.6 wires Chatterbox; the factory now returns an instance."""
+    e = default_engine_factory("chatterbox")
+    assert e.name == "chatterbox"
 
 
 def test_default_factory_rejects_unknown_name():
