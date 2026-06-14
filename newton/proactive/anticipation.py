@@ -54,8 +54,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from newton.models.user_pattern import UserPattern
-from newton.proactive.config import AnticipationConfig, load_proactive_config
+from newton.proactive.config import (
+    AnticipationConfig,
+    ReactionLearningConfig,
+    load_proactive_config,
+)
 from newton.proactive.context import Context
+from newton.proactive.learning import compute_pattern_penalty
 from newton.proactive.patterns.series import to_local
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,11 +79,13 @@ class Rationale:
     threshold: float
     threshold_passed: bool
     factors: dict[str, Any] = field(default_factory=dict)
+    penalty: float = 0.0  # cumulative reaction penalty (step 4.6)
 
     def explain(self) -> str:
         """One-line summary suitable for the CLI."""
         return (
             f"confidence {self.confidence:.3f} × "
+            f"(1 - penalty {self.penalty:.3f}) × "
             f"relevance {self.relevance:.3f} = {self.final:.3f} "
             f"vs {self.mode} threshold {self.threshold:.2f} "
             f"({'pass' if self.threshold_passed else 'fail'})"
@@ -278,10 +285,13 @@ class AnticipationEngine:
         config: AnticipationConfig | None = None,
         relevance: RelevanceStrategy | None = None,
         pattern_timezone: str = "Asia/Seoul",
+        reactions: ReactionLearningConfig | None = None,
     ) -> None:
-        self._config = config or load_proactive_config().anticipation
+        cfg = load_proactive_config()
+        self._config = config or cfg.anticipation
         self._relevance = relevance or TimeProximityRelevance()
         self._tz_name = pattern_timezone
+        self._reactions = reactions or cfg.reactions
 
     @property
     def config(self) -> AnticipationConfig:
@@ -330,7 +340,15 @@ class AnticipationEngine:
                 config=self._config,
                 tz_name=self._tz_name,
             )
-            final = confidence * rr.relevance
+            # Reaction penalty folds in here (4.6). Computed live so
+            # toggling sir's recent reactions is reflected immediately;
+            # the cost is one indexed query per pattern per predict()
+            # call — fine at the volumes the scheduler runs at.
+            penalty = compute_pattern_penalty(
+                db_session, context.user_id, row.pattern_id, self._reactions
+            )
+            effective_confidence = confidence * (1.0 - penalty)
+            final = effective_confidence * rr.relevance
             rationale = Rationale(
                 confidence=confidence,
                 relevance=rr.relevance,
@@ -339,6 +357,7 @@ class AnticipationEngine:
                 threshold=threshold,
                 threshold_passed=(final >= threshold),
                 factors=rr.factors,
+                penalty=penalty,
             )
             if not rationale.threshold_passed:
                 continue

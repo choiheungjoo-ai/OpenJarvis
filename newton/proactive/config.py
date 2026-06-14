@@ -248,6 +248,41 @@ class SchedulerConfig(BaseModel):
         return v
 
 
+class ReactionLearningConfig(BaseModel):
+    """Per-reaction penalty weights + TTLs (step 4.6).
+
+    Each ``rejected`` row within ``rejected_ttl_days`` contributes
+    ``rejected_weight`` to the pattern's cumulative penalty; each
+    ``ignored`` row within ``ignored_ttl_days`` contributes
+    ``ignored_weight``. The total is clipped to [0, 1] before being
+    folded into the score as ``× (1 - penalty)``.
+
+    Auto-ignore: a scheduled row with no explicit reaction is treated
+    as 'ignored' after ``auto_ignore_minutes`` minutes. The scheduler's
+    daemon-wired loop calls ``mark_stale_as_ignored`` periodically.
+    """
+
+    rejected_weight: float = 0.2
+    rejected_ttl_days: int = 7
+    ignored_weight: float = 0.05
+    ignored_ttl_days: int = 2
+    auto_ignore_minutes: int = 5
+
+    @field_validator("rejected_weight", "ignored_weight")
+    @classmethod
+    def _weight_in_unit(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("weight must be in [0, 1]")
+        return v
+
+    @field_validator("rejected_ttl_days", "ignored_ttl_days", "auto_ignore_minutes")
+    @classmethod
+    def _positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+
 class ProactiveConfig(BaseModel):
     """Top-level proactive engine configuration."""
 
@@ -256,6 +291,7 @@ class ProactiveConfig(BaseModel):
     patterns: PatternsConfig = Field(default_factory=PatternsConfig)
     anticipation: AnticipationConfig = Field(default_factory=AnticipationConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    reactions: ReactionLearningConfig = Field(default_factory=ReactionLearningConfig)
 
     @field_validator("cooldown_minutes")
     @classmethod
@@ -351,6 +387,7 @@ __all__ = [
     "ProactiveConfig",
     "ProactiveConfigError",
     "QuietHoursConfig",
+    "ReactionLearningConfig",
     "SchedulerConfig",
     "SequencePatternConfig",
     "ThresholdRule",

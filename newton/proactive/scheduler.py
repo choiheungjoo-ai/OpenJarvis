@@ -77,6 +77,12 @@ class Scheduler:
 
         report = ScheduleReport(user_id=user_id, mode=mode)
 
+        # Auto-ignore stale notifications first so the penalty in the
+        # anticipation predict() below already reflects them.
+        from newton.proactive.learning import mark_stale_as_ignored
+
+        mark_stale_as_ignored(db_session, now=now)
+
         if mode == "off":
             report.reason = "mode=off"
             return report

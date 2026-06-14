@@ -2485,6 +2485,120 @@ def proactive_schedule(
         )
 
 
+@proactive.command("notifications")
+@click.option("--user", "user_id", default=None, help="Filter to one user.")
+@click.option("--last", "last_n", default=10, show_default=True, type=int)
+@click.option(
+    "--pending-only",
+    is_flag=True,
+    help="Show only notifications without a recorded user_response.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_notifications(
+    user_id: str | None, last_n: int, pending_only: bool, as_json: bool
+) -> None:
+    """List recent proactive_notifications rows."""
+    from sqlalchemy import select
+
+    from newton.db import get_session
+    from newton.models.proactive_notification import ProactiveNotification
+    from newton.proactive.alerts import display_text
+
+    with get_session() as session:
+        q = select(ProactiveNotification)
+        if user_id:
+            q = q.where(ProactiveNotification.user_id == user_id)
+        if pending_only:
+            q = q.where(ProactiveNotification.user_response.is_(None))
+        q = q.order_by(ProactiveNotification.notification_id.desc()).limit(last_n)
+        rows = list(session.execute(q).scalars().all())
+
+    data = [
+        {
+            "notification_id": r.notification_id,
+            "user_id": r.user_id,
+            "trigger_pattern_id": r.trigger_pattern_id,
+            # display_text strips the [kind] prefix from alert rows.
+            # Scheduler rows have no prefix, so this is a pass-through.
+            "text": display_text(r.notification_text),
+            "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+            "user_response": r.user_response,
+            "response_at": r.response_at.isoformat() if r.response_at else None,
+        }
+        for r in rows
+    ]
+    if as_json:
+        click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    if not data:
+        console.print("[dim]no notifications[/dim]")
+        return
+    for d in data:
+        status = d["user_response"] or "pending"
+        console.print(
+            f"#{d['notification_id']:3d} [{status}] ({d['sent_at']}) {d['text']}"
+        )
+
+
+@proactive.command("react")
+@click.argument("notification_id", type=int)
+@click.option(
+    "--accept",
+    "reaction",
+    flag_value="accepted",
+    help="Record an acceptance.",
+)
+@click.option(
+    "--reject",
+    "reaction",
+    flag_value="rejected",
+    help="Record a rejection.",
+)
+@click.option(
+    "--ignore",
+    "reaction",
+    flag_value="ignored",
+    help="Record an explicit ignore (auto-ignore happens after the configured grace).",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_react(notification_id: int, reaction: str, as_json: bool) -> None:
+    """Record sir's reaction to a notification."""
+    from newton.db import get_session
+    from newton.proactive.learning import record_reaction
+
+    if not reaction:
+        click.secho(
+            "error: pass one of --accept / --reject / --ignore",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    try:
+        with get_session() as session:
+            result = record_reaction(session, notification_id, reaction)
+    except ValueError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    payload = {
+        "notification_id": result.notification_id,
+        "user_id": result.user_id,
+        "pattern_id": result.pattern_id,
+        "reaction": result.reaction,
+        "response_at": result.response_at.isoformat(),
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    click.echo(
+        f"recorded {reaction} for notification #{notification_id} "
+        f"(pattern #{result.pattern_id})"
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

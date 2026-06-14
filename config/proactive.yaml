@@ -170,3 +170,23 @@ scheduler:
   quiet_hours:
     start: "23:00"
     end: "07:00"
+
+# ── Reaction learning (block 4 step 4.6) ─────────────────────────────
+#
+# Penalty is computed from recent user_response rows on
+# proactive_notifications (no new table). Each contributing row adds
+# its weight; the sum is clipped to [0, 1] and folded into the
+# anticipation score as × (1 - penalty).
+#
+# Reactions don't mutate user_patterns.occurrences — that's the
+# learner's source-of-truth column, rewritten each run.
+reactions:
+  rejected_weight: 0.2
+  rejected_ttl_days: 7
+  ignored_weight: 0.05
+  ignored_ttl_days: 2
+
+  # Notifications with no response after this many minutes are
+  # auto-flipped to 'ignored' (a soft signal — lighter weight than
+  # an explicit reject).
+  auto_ignore_minutes: 5
