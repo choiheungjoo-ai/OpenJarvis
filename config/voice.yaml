@@ -20,3 +20,21 @@ vad:
   # Consecutive silence chunks before "speech ended" — wider = less
   # choppy turn-taking, narrower = lower latency.
   min_silence_chunks: 15
+
+# Stage 1 — what wakes Newton up. Either a wake word or a 2-clap pattern.
+stage1:
+  wake:
+    enabled: true
+    # Wake words sir / gf will say. "newton" is the generic system wake;
+    # the persona names also count as wake words and route via the
+    # persona engine (block 3).
+    wake_words: ["newton", "jarvis", "friday", "butler"]
+    score_threshold: 0.5
+  clap:
+    enabled: true
+    # Per-chunk RMS above which a chunk is a peak candidate.
+    peak_threshold: 0.15
+    # Min/max gap between the two peaks. The pair-in-window rule
+    # filters door slams and single hand claps.
+    min_gap_ms: 90
+    max_gap_ms: 500

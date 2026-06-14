@@ -69,11 +69,77 @@ class VADConfig(BaseModel):
         return v
 
 
+class ClapConfig(BaseModel):
+    """2-clap-in-sequence trigger.
+
+    Detects two distinct energy peaks within a configurable window.
+    Single peaks (door slam, single applause) don't fire — the
+    pair-in-window rule keeps false positives down without needing a
+    model. The doc mentions an openWakeWord-trained clap classifier;
+    the energy-peak approach is shipped first because it has no
+    extra dep and is deterministic in tests.
+    """
+
+    enabled: bool = True
+    # Per-chunk RMS above which a chunk counts as a "peak candidate".
+    peak_threshold: float = 0.15
+    # Minimum gap (ms) between the two peaks. Anything tighter is one
+    # clap that bounced off the ceiling.
+    min_gap_ms: int = 90
+    # Maximum gap (ms) between the two peaks. Beyond this, we consider
+    # the first peak a single noise event and reset.
+    max_gap_ms: int = 500
+
+    @field_validator("peak_threshold")
+    @classmethod
+    def _threshold_range(cls, v: float) -> float:
+        if not 0.0 < v <= 1.0:
+            raise ValueError("peak_threshold must be in (0, 1]")
+        return v
+
+    @field_validator("min_gap_ms", "max_gap_ms")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+
+class WakeConfig(BaseModel):
+    """openWakeWord wrapper settings."""
+
+    # Names sir will say. Each maps 1:1 to an openWakeWord model that
+    # the lazy loader fetches. The persona-naming routing (block 3)
+    # interprets which of these wake words also activates a persona.
+    enabled: bool = True
+    wake_words: list[str] = Field(
+        default_factory=lambda: ["newton", "jarvis", "friday", "butler"]
+    )
+    # Score above which openWakeWord's predict() output is treated as
+    # a match. 0.5 is the library's documented default.
+    score_threshold: float = 0.5
+
+    @field_validator("score_threshold")
+    @classmethod
+    def _threshold_range(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("score_threshold must be in [0, 1]")
+        return v
+
+
+class Stage1Config(BaseModel):
+    """Top-level Stage-1 activation knobs (wake word OR clap)."""
+
+    wake: WakeConfig = Field(default_factory=WakeConfig)
+    clap: ClapConfig = Field(default_factory=ClapConfig)
+
+
 class VoiceConfig(BaseModel):
     """Top-level voice configuration."""
 
     audio: AudioConfig = Field(default_factory=AudioConfig)
     vad: VADConfig = Field(default_factory=VADConfig)
+    stage1: Stage1Config = Field(default_factory=Stage1Config)
 
 
 class VoiceConfigError(RuntimeError):
@@ -126,8 +192,11 @@ def load_voice_config() -> VoiceConfig:
 
 __all__ = [
     "AudioConfig",
+    "ClapConfig",
+    "Stage1Config",
     "VADConfig",
     "VoiceConfig",
     "VoiceConfigError",
+    "WakeConfig",
     "load_voice_config",
 ]
