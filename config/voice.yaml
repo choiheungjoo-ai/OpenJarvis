@@ -1,0 +1,22 @@
+# Newton v4 — voice layer configuration.
+#
+# Optional. Defaults apply when absent. Create voice.local.yaml for
+# sir-only overrides (gitignored).
+
+audio:
+  # Silero VAD + Whisper both want 16 kHz mono.
+  sample_rate: 16000
+  # 512 samples ≈ 32 ms at 16 kHz — matches Silero's expected chunk.
+  chunk_samples: 512
+  # null = sounddevice default input. Override with device name or index.
+  mic_device: null
+
+vad:
+  # Probability above which a chunk counts as speech.
+  threshold: 0.5
+  # Minimum consecutive speech chunks before "speech started" fires
+  # downstream — filters single-chunk noise (keyboard, mouse clicks).
+  min_speech_chunks: 3
+  # Consecutive silence chunks before "speech ended" — wider = less
+  # choppy turn-taking, narrower = lower latency.
+  min_silence_chunks: 15
