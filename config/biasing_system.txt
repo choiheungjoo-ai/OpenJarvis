@@ -1,0 +1,23 @@
+# Newton system-tier biasing vocabulary.
+#
+# Always-on technical terms Whisper should bias toward. Tier 1 of the
+# three-tier prompt — these go in before the user's personal dict and
+# the recent-message context.
+#
+# One term per line. Lines starting with # are comments. Blank lines
+# are ignored. Order is preserved into the prompt.
+
+Newton
+JARVIS
+Friday
+Butler
+RTX 5090
+BGE-M3
+Qdrant
+Whisper
+Chatterbox
+Qwen3-TTS
+Silero
+openWakeWord
+Resemblyzer
+faster-whisper
