@@ -2599,6 +2599,59 @@ def proactive_react(notification_id: int, reaction: str, as_json: bool) -> None:
     )
 
 
+@proactive.command("watch")
+@click.option("--user", "user_id", default=None, help="Filter to one user.")
+@click.option(
+    "--interval",
+    type=float,
+    default=2.0,
+    show_default=True,
+    help="Seconds between DB polls.",
+)
+@click.option(
+    "--no-desktop",
+    is_flag=True,
+    help="Don't try the notify-send channel — CLI only.",
+)
+def proactive_watch(user_id: str | None, interval: float, no_desktop: bool) -> None:
+    """Stream pending proactive notifications until Ctrl-C."""
+    import time
+
+    from sqlalchemy import select
+
+    from newton.db import get_session
+    from newton.models.proactive_notification import ProactiveNotification
+    from newton.proactive.delivery import (
+        CLIDeliveryChannel,
+        DeliveryDispatcher,
+        DesktopDeliveryChannel,
+    )
+
+    dispatcher = DeliveryDispatcher()
+    dispatcher.add(CLIDeliveryChannel())
+    if not no_desktop:
+        dispatcher.add(DesktopDeliveryChannel())
+
+    click.echo("watching pending proactive notifications (Ctrl-C to stop)")
+    try:
+        while True:
+            with get_session() as session:
+                q = select(ProactiveNotification).where(
+                    ProactiveNotification.user_response.is_(None)
+                )
+                if user_id:
+                    q = q.where(ProactiveNotification.user_id == user_id)
+                q = q.order_by(ProactiveNotification.notification_id)
+                rows = list(session.execute(q).scalars().all())
+
+            for row in rows:
+                dispatcher.deliver(row)
+
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        click.echo("\nstopped watching")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]
