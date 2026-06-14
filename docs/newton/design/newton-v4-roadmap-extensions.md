@@ -349,6 +349,69 @@ research consistently shows combined models beat any single one.
 zero-shot) — behind `forecast.price`, combined by a config-weighted
 ensemble. Exact picks verified against current SOTA at build time.
 
+**Evolution path (start with proven, grow into our own).** sir's intent is
+not to invent a novel architecture on day one, but to start from validated
+models and evolve toward a custom one — the same way Newton itself grew out
+of OpenJarvis. Concretely:
+
+1. **Train proven architectures** (TFT / N-HiTS / LSTM) on our data →
+   baselines.
+2. **Compare + augment** — see which fits our data; add features (news
+   sentiment, indicators).
+3. **Ensemble** — combine models (research shows this beats any single one).
+4. **Custom design** — compose our own `nn.Module` in PyTorch (e.g.
+   LSTM + attention + news-embedding wired our way). This is *combining
+   proven building blocks our way*, not inventing a new paradigm.
+5. **Evolve by record** — retrain on the growing simulation log; tune
+   ensemble weights from realized performance (§3.5).
+
+Each stage rests on the previous: the step-1 baseline is what tells us
+whether a step-4 custom model is actually *better*.
+
+### 3.2.1 Training infrastructure — PyTorch, isolated (Strategy D)
+
+Training these models needs **PyTorch**, which Newton's core deliberately
+does not carry (Strategy D = no in-process CUDA in the core). The
+resolution is the **same pattern already proven for embeddings (TEI):
+run the GPU work in a separate process / Docker container, reached over
+HTTP — never imported into the core.**
+
+```
+Newton core  (PyTorch-free — Strategy D held)
+   │  provider call: forecast.price / forecast.train
+   ▼
+Training+Inference service  (separate Docker: PyTorch + CUDA 12.8)   ← new
+   - train  TFT / LSTM / N-BEATS / custom nn.Module
+   - tune   on our data + news features
+   - infer  → return forecast over HTTP
+   ▼
+Newton receives results → simulate, record, trigger retrain (§3.5)
+```
+
+This mirrors the TEI/Qdrant split exactly — and that split has proven
+stable in production (both containers healthy for days at a time). The
+training container is the *third* GPU service alongside TEI and Qdrant.
+
+**Verified prerequisite (2026-06).** The RTX 5090 is Blackwell / sm_120.
+This was historically a problem (stable PyTorch only went up to sm_90,
+forcing nightly builds or source compilation). **That barrier is gone:**
+a clean local check confirmed **stable PyTorch 2.11.0 + CUDA 12.8** runs
+real GPU compute on the 5090 —
+
+```
+PyTorch: 2.11.0+cu128   CUDA: True (12.8)
+Device: NVIDIA GeForce RTX 5090   Capability: (12, 0)
+GPU matmul OK — real compute, not a CPU-fallback
+```
+
+So: install via the `cu128` index (`--index-url
+https://download.pytorch.org/whl/cu128`), **stable channel, no nightly.**
+The check ran in a throwaway venv and was removed; the core stayed
+PyTorch-free. Standard training ops (TFT/LSTM/N-BEATS) need no custom CUDA
+kernels, so the known sm_120 JIT-compile gap (missing `libnvptxcompiler.so`
+for things like FlashAttention) does not affect this path. Re-verify the
+PyTorch/CUDA versions at build time — the field moves.
+
 ### 3.3 News learning (`news.sentiment`) — the "learn the news" part
 
 - **FinBERT** is the open, finance-tuned sentiment standard (pos/neg/neutral
@@ -423,7 +486,8 @@ capability blocks. Realistic order, by dependency:
 |---|---|---|---|
 | **Credential Vault** | crypto libs only (independent) | before/with Block 7; or with Block 5 for voice-passphrase | none until used |
 | **Supervisor** | many real providers to route (Block 7) | with/just after Block 7; generalize `research.loop` | none |
-| **Investment Stage 1–2** | `market.data`, `forecast.price`, local train | early — zero risk | none |
+| **Training service (Docker)** | PyTorch+CUDA container (verified) | with Investment Stage 1; the 3rd GPU service after TEI/Qdrant | none |
+| **Investment Stage 1–2** | `market.data`, `forecast.price`, training service | early — zero risk | none |
 | **Dev Gateway** | Supervisor + ToolRegistry + dev tools | after Supervisor (post-Block 7) | low |
 | **Web automation / login** | Credential Vault + Block 7 browser tools | post-Block 7 | medium (CAPTCHA) |
 | **Investment Stage 3–4** | Stages 1–2 stable + Credential Vault | latest; real money | high — max approval |
@@ -473,6 +537,12 @@ options can be re-checked (the field moves fast):
    (Linux Secret Service; macOS Keychain if/when ported).
 6. **Stage-3 stability bar** — the concrete numbers (months, return,
    drawdown, Sharpe). Config, defined before Stage 4 is enabled.
+
+**Resolved (2026-06):** the training-infra prerequisite — does PyTorch run
+on the 5090 (Blackwell/sm_120)? — is *verified*: stable PyTorch 2.11.0 +
+CUDA 12.8 (`cu128` wheel, no nightly) runs real GPU compute on the 5090.
+See §3.2.1. Still re-check the exact versions at build time, but the path
+is no longer in doubt.
 
 ---
 
