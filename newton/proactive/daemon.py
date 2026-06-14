@@ -71,6 +71,7 @@ class TickReport:
     metrics_skipped: int = 0
     per_monitor: dict[str, float | None] = field(default_factory=dict)
     alerts_fired: list[FiredAlert] = field(default_factory=list)
+    scheduled_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -95,6 +96,12 @@ class ProactiveDaemon:
     # is what the checker reads.
     alert_checker: AlertChecker | None = None
     alert_user_id: str = "sir"
+
+    # Optional notification scheduler (step 4.5). Runs after alerts so
+    # both surfaces see the same fresh metrics inside one transaction.
+    # When ``None``, the daemon is back to "sampler + alerts only".
+    scheduler: object | None = None
+    scheduler_mode: str = "smart"
 
     stop_event: threading.Event = field(default_factory=threading.Event)
 
@@ -154,6 +161,16 @@ class ProactiveDaemon:
                 # An alert misfire must not take down the sampling loop —
                 # log it and let the next tick try again.
                 log.warning("alert checker failed: %s", e)
+
+        if self.scheduler is not None:
+            session.flush()
+            try:
+                sched_report = self.scheduler.tick(
+                    session, self.alert_user_id, self.scheduler_mode
+                )
+                report.scheduled_ids = list(sched_report.scheduled)
+            except Exception as e:  # noqa: BLE001
+                log.warning("scheduler tick failed: %s", e)
 
     # ── interval policy ────────────────────────────────────────────────
 

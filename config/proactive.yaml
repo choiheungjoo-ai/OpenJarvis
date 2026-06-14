@@ -154,3 +154,19 @@ anticipation:
     minimal: 0.9
     smart: 0.7
     aggressive: 0.5
+
+# ── Notification scheduler (block 4 step 4.5) ────────────────────────
+scheduler:
+  # Belt-and-suspenders cap per tick (anticipation.max_results also caps).
+  max_per_tick: 1
+
+  # Per-pattern cooldown: don't schedule a second row for the same
+  # pattern_id within this many minutes.
+  pattern_cooldown_minutes: 30
+
+  # Daily quiet window in patterns.pattern_timezone. Wraps midnight
+  # when start > end (the typical 23:00–07:00 case). Zero-length
+  # (start == end) means "never quiet".
+  quiet_hours:
+    start: "23:00"
+    end: "07:00"

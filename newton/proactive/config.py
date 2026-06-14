@@ -202,6 +202,52 @@ class AnticipationConfig(BaseModel):
         return v
 
 
+class QuietHoursConfig(BaseModel):
+    """Daily window during which the scheduler stays silent.
+
+    Wraps midnight when ``start > end`` (the typical 23:00–07:00
+    case). Zero-length ``start == end`` means "never quiet".
+    Timezone is the configured ``patterns.pattern_timezone`` —
+    consistent with weekday bucketing.
+    """
+
+    start: str = "23:00"
+    end: str = "07:00"
+
+    @field_validator("start", "end")
+    @classmethod
+    def _hhmm(cls, v: str) -> str:
+        from newton.proactive.quiet_hours import parse_hhmm
+
+        parse_hhmm(v)  # raises if malformed
+        return v
+
+
+class SchedulerConfig(BaseModel):
+    """Knobs for the proactive notification scheduler (step 4.5)."""
+
+    # Don't write more than this many scheduler-driven rows per tick.
+    # Anticipation already caps at config.anticipation.max_results, so
+    # this is a belt-and-suspenders ceiling that the scheduler itself
+    # can read without reaching into the anticipation config.
+    max_per_tick: int = 1
+
+    # Per-pattern cooldown: don't schedule a second row for the same
+    # pattern_id within this many minutes. Mirrors threshold-alert
+    # cooldown semantics from 4.2 but keyed off trigger_pattern_id
+    # instead of the [kind] prefix.
+    pattern_cooldown_minutes: int = 30
+
+    quiet_hours: QuietHoursConfig = Field(default_factory=QuietHoursConfig)
+
+    @field_validator("max_per_tick", "pattern_cooldown_minutes")
+    @classmethod
+    def _non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("must be >= 0")
+        return v
+
+
 class ProactiveConfig(BaseModel):
     """Top-level proactive engine configuration."""
 
@@ -209,6 +255,7 @@ class ProactiveConfig(BaseModel):
     cooldown_minutes: int = 15
     patterns: PatternsConfig = Field(default_factory=PatternsConfig)
     anticipation: AnticipationConfig = Field(default_factory=AnticipationConfig)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
 
     @field_validator("cooldown_minutes")
     @classmethod
@@ -303,6 +350,8 @@ __all__ = [
     "PatternsConfig",
     "ProactiveConfig",
     "ProactiveConfigError",
+    "QuietHoursConfig",
+    "SchedulerConfig",
     "SequencePatternConfig",
     "ThresholdRule",
     "load_proactive_config",

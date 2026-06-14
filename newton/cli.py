@@ -2431,6 +2431,60 @@ def proactive_predict(user_id: str, mode: str | None, as_json: bool) -> None:
         console.print(f"   why : {p.rationale.explain()}")
 
 
+@proactive.command("schedule")
+@click.option("--user", "user_id", default="sir", show_default=True)
+@click.option(
+    "--mode",
+    type=click.Choice(["off", "minimal", "smart", "aggressive"]),
+    default=None,
+    help="Override the configured default mode.",
+)
+@click.option(
+    "--urgent",
+    is_flag=True,
+    help="Bypass quiet hours (later steps will use this for calendar etc).",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_schedule(
+    user_id: str, mode: str | None, urgent: bool, as_json: bool
+) -> None:
+    """Run one scheduler tick: predict, gate, write rows."""
+    from newton.db import get_session
+    from newton.proactive.config import load_proactive_config
+    from newton.proactive.scheduler import build_default_scheduler
+
+    cfg = load_proactive_config()
+    chosen_mode = mode or cfg.anticipation.default_mode
+    scheduler = build_default_scheduler()
+
+    with get_session() as session:
+        report = scheduler.tick(session, user_id, chosen_mode, urgent=urgent)
+
+    payload = {
+        "user_id": report.user_id,
+        "mode": report.mode,
+        "reason": report.reason,
+        "scheduled_ids": report.scheduled,
+        "skipped": report.skipped,
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+
+    console = Console()
+    if report.reason:
+        console.print(f"[dim]tick skipped: {report.reason}[/dim]")
+    if report.scheduled:
+        console.print(
+            f"[green]scheduled[/green] {len(report.scheduled)} "
+            f"notification(s): {report.scheduled}"
+        )
+    for s in report.skipped:
+        console.print(
+            f"[yellow]skipped[/yellow]  pattern #{s['pattern_id']}: {s['reason']}"
+        )
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]
