@@ -163,6 +163,37 @@ def test_router_raises_when_no_route_matches():
         router.resolve("jarvis", "en")
 
 
+def test_find_route_does_not_construct_engine():
+    """find_route is the pre-flight: engine_factory must not be touched."""
+    boom_calls = {"n": 0}
+
+    def boom_factory(_name):
+        boom_calls["n"] += 1
+        raise AssertionError("factory must not run during find_route")
+
+    cfg = TTSConfig(
+        voice_root="data/voices",
+        routes=[
+            TTSRouteConfig(persona="jarvis", language="ko", engine="qwen3_tts_1.7b"),
+        ],
+    )
+    router = TTSRouter(config=cfg, engine_factory=boom_factory)
+    route = router.find_route("jarvis", "ko")
+    assert route.engine == "qwen3_tts_1.7b"
+    assert boom_calls["n"] == 0
+
+
+def test_find_route_raises_on_no_match():
+    cfg = TTSConfig(
+        voice_root="data/voices",
+        routes=[TTSRouteConfig(persona="butler", language="ko", engine="x")],
+    )
+    factory, _ = _factory_factory()
+    router = TTSRouter(config=cfg, engine_factory=factory)
+    with pytest.raises(TTSRoutingError, match="no TTS route"):
+        router.find_route("jarvis", "en")
+
+
 # ── engine caching ───────────────────────────────────────────────────────
 
 

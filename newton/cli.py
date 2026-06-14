@@ -1669,6 +1669,127 @@ def voice_samples_show(persona_id: str, as_json: bool) -> None:
         console.print(f"  {lang}: {len(files)} samples")
 
 
+# ── voice tts (step 5.5 — zero-shot cloning CLI) ───────────────────────
+
+
+@voice.command("tts")
+@click.option("--persona", "persona_id", required=True, help="Persona id.")
+@click.option("--lang", "language", required=True, help="Language code (ko/en/...).")
+@click.option("--text", required=True, help="Text to synthesize.")
+@click.option(
+    "--out",
+    "out_path",
+    default=None,
+    help="Output WAV path. Defaults to /tmp/newton-voice-<timestamp>.wav.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def voice_tts(
+    persona_id: str,
+    language: str,
+    text: str,
+    out_path: str | None,
+    as_json: bool,
+) -> None:
+    """Synthesize ``text`` for ``persona_id`` + ``language`` and write a WAV.
+
+    The router resolves (persona, lang) → engine + sample; the engine
+    lazy-loads its model on first call. Missing samples fail loudly
+    *before* any model load — see
+    docs/newton/voice-cloning-verification.md for the install + run flow.
+    """
+    import time
+
+    from newton.voice.config import load_voice_config
+    from newton.voice.samples import find_referenced_sample
+    from newton.voice.tts.base import save_wav
+    from newton.voice.tts.router import (
+        TTSRouter,
+        TTSRoutingError,
+        default_engine_factory,
+    )
+
+    cfg = load_voice_config()
+    voice_root = _voice_root_path()
+    router = TTSRouter(
+        config=cfg.tts,
+        engine_factory=default_engine_factory,
+        voice_root_override=voice_root,
+    )
+
+    # 1) Find the route — DOES NOT construct the engine.
+    try:
+        route = router.find_route(persona_id, language)
+    except TTSRoutingError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    # 2) Existence-check the sample BEFORE the engine loads, so a
+    # missing-sample error never triggers a heavy model load.
+    voice_ref: Path | None = None
+    if route.voice_reference is not None:
+        resolved_path = find_referenced_sample(route.voice_reference, voice_root)
+        if resolved_path is None:
+            click.secho(
+                f"error: voice sample for {persona_id}/{language} not found "
+                f"at {voice_root / route.voice_reference}. "
+                f"Record it (step 5.4) or update voice.yaml.",
+                fg="red",
+                err=True,
+            )
+            sys.exit(1)
+        voice_ref = resolved_path
+
+    # 3) Now resolve (engine constructed + cached) and synthesize.
+    resolved = router.resolve(persona_id, language)
+    try:
+        result = resolved.engine.synthesize(
+            text, language=language, voice_reference=voice_ref
+        )
+    except ModuleNotFoundError as e:
+        click.secho(
+            f"error: {e.name} not installed. See "
+            f"docs/newton/voice-cloning-verification.md for install steps.",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+    except FileNotFoundError as e:
+        click.secho(
+            f"error: {e}. Fetch the model weights — see "
+            f"docs/newton/voice-cloning-verification.md.",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    # 4) Write the WAV.
+    if out_path is None:
+        out_path = f"/tmp/newton-voice-{int(time.time())}.wav"
+    out = Path(out_path)
+    save_wav(result, out)
+
+    payload = {
+        "persona": persona_id,
+        "language": language,
+        "engine": resolved.engine.name,
+        "voice_reference": str(voice_ref) if voice_ref else None,
+        "out": str(out),
+        "duration_seconds": result.duration_seconds,
+        "sample_rate": result.sample_rate,
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    console.print(f"[bold]engine[/bold] : {resolved.engine.name}")
+    console.print(f"[bold]sample[/bold] : {voice_ref}")
+    console.print(
+        f"[bold]output[/bold] : {out}  ({result.duration_seconds:.2f}s @ "
+        f"{result.sample_rate}Hz)"
+    )
+
+
 # -----------------------------------------------------------------------------
 # memory group
 # -----------------------------------------------------------------------------

@@ -61,17 +61,23 @@ class TTSRouter:
     voice_root_override: Path | None = None
     _engine_cache: dict[str, TTS] = field(default_factory=dict)
 
-    def resolve(self, persona: str, language: str) -> TTSRouteResolution:
-        """Find the first matching route and return engine + sample path."""
-        match: TTSRouteConfig | None = None
+    def find_route(self, persona: str, language: str) -> TTSRouteConfig:
+        """Look up the matching route *without* constructing the engine.
+
+        Useful for pre-flight checks (sample existence) that should fail
+        loudly before the heavy lazy model load. Raises ``TTSRoutingError``
+        when nothing matches.
+        """
         for route in self.config.routes:
             if _matches(route, persona, language):
-                match = route
-                break
-        if match is None:
-            raise TTSRoutingError(
-                f"no TTS route for persona={persona!r} language={language!r}"
-            )
+                return route
+        raise TTSRoutingError(
+            f"no TTS route for persona={persona!r} language={language!r}"
+        )
+
+    def resolve(self, persona: str, language: str) -> TTSRouteResolution:
+        """Find the first matching route and return engine + sample path."""
+        match = self.find_route(persona, language)
 
         engine = self._engine_cache.get(match.engine)
         if engine is None:
