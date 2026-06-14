@@ -40,7 +40,21 @@ newton
 │   └── quarantine           list / review guest activity
 ├── persona route --user --voice-stage2   resolve + render prompt
 ├── voice biasing            show / clear a user's STT bias dict
-└── memory                   (block 3) summarize-session / recall
+├── memory                   (block 3) summarize-session / recall
+└── proactive                (block 4) monitoring + alerts + patterns + delivery
+    ├── start                background sampler + alert + scheduler loop
+    ├── stop                 SIGTERM the daemon, clear pidfile
+    ├── status               daemon up? sample counts, last sample
+    ├── test-alert <kind>    inject synthetic sample, force one rule
+    ├── seed-test-data       deterministic 4-week activity for learning tests
+    ├── patterns             learn --once / list / show / forget
+    ├── predict              ranked predictions for now (confidence × relevance)
+    ├── schedule             one tick: predict → gate → write rows
+    ├── notifications        list recent rows (pending-only flag)
+    ├── react <id>           --accept / --reject / --ignore
+    ├── mode                 off/minimal/smart/aggressive [--for 1h] [--list]
+    ├── watch                streaming delivery loop (CLI + desktop)
+    └── recall-check <msg>   vault-driven recall against a message
 ```
 
 ## Conventions
@@ -197,7 +211,8 @@ the correct behaviour for inspecting what's on disk.
 
 Reserved namespaces for upcoming blocks:
 
-- `newton proactive` — recent system metrics, fire a test nudge (block 8)
-- `newton voice tts` — TTS routing, regenerate sample (block 4)
+- `newton voice tts` — TTS routing, regenerate sample (block 5)
 
-Delivered since block 1: `newton tools` / `newton providers` (block 2); `newton vault`, `newton persona`, `newton voice biasing`, `newton memory` (block 3).
+Delivered since block 1: `newton tools` / `newton providers` (block 2);
+`newton vault`, `newton persona`, `newton voice biasing`, `newton memory`
+(block 3); `newton proactive` (block 4).
