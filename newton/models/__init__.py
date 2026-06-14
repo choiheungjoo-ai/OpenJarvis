@@ -28,6 +28,7 @@ from newton.models.screen_capture import ScreenCapture
 from newton.models.system_metric import SystemMetric
 from newton.models.tool_approval import ToolApproval
 from newton.models.tool_policy import ToolPolicy
+from newton.models.tts_fallback_log import TTSFallbackLog
 from newton.models.user import User
 from newton.models.user_pattern import UserPattern
 from newton.models.user_persona_link import UserPersonaLink
@@ -46,6 +47,7 @@ __all__ = [
     "RegistrationRequest",
     "ScreenCapture",
     "SystemMetric",
+    "TTSFallbackLog",
     "ToolApproval",
     "ToolPolicy",
     "User",
