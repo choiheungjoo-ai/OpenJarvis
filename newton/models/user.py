@@ -30,6 +30,10 @@ class User(Base):
             "retry_profile IN ('strict','normal','relaxed')",
             name="retry_profile_enum",
         ),
+        CheckConstraint(
+            "proactive_mode IN ('off','minimal','smart','aggressive')",
+            name="proactive_mode_enum",
+        ),
     )
 
     user_id: Mapped[str] = mapped_column(primary_key=True)
@@ -49,6 +53,13 @@ class User(Base):
     retry_profile: Mapped[str] = mapped_column(
         default="normal", server_default="normal"
     )
+
+    # Proactive mode (block 4 step 4.8). NULL revert_at means "permanent";
+    # a timestamp means "revert to default at this UTC instant" — the
+    # daemon checks on every tick.
+    proactive_mode: Mapped[str] = mapped_column(default="smart", server_default="smart")
+    proactive_mode_revert_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.current_timestamp()
     )

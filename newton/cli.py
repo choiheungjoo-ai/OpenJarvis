@@ -2652,6 +2652,126 @@ def proactive_watch(user_id: str | None, interval: float, no_desktop: bool) -> N
         click.echo("\nstopped watching")
 
 
+def _parse_duration(text: str) -> float:
+    """Parse '1h', '30m', '45s', or a bare number-of-seconds."""
+    text = text.strip().lower()
+    if not text:
+        raise ValueError("empty duration")
+    if text[-1] == "h":
+        return float(text[:-1]) * 3600.0
+    if text[-1] == "m":
+        return float(text[:-1]) * 60.0
+    if text[-1] == "s":
+        return float(text[:-1])
+    return float(text)
+
+
+@proactive.command("mode")
+@click.argument("mode", required=False)
+@click.option("--user", "user_id", default="sir", show_default=True)
+@click.option(
+    "--for",
+    "for_duration",
+    default=None,
+    help="Time-bounded duration like '1h', '30m', '45s'. Omit for permanent.",
+)
+@click.option(
+    "--list",
+    "do_list",
+    is_flag=True,
+    help="List all users' modes instead of changing one.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def proactive_mode(
+    mode: str | None,
+    user_id: str,
+    for_duration: str | None,
+    do_list: bool,
+    as_json: bool,
+) -> None:
+    """Change a user's proactive mode (off/minimal/smart/aggressive)."""
+    from newton.db import get_session
+    from newton.proactive.modes import (
+        VALID_MODES,
+        list_modes,
+        resolve_mode,
+        set_mode,
+    )
+
+    if do_list:
+        with get_session() as session:
+            modes = list_modes(session)
+        payload = [
+            {
+                "user_id": m.user_id,
+                "mode": m.mode,
+                "revert_at": m.revert_at.isoformat() if m.revert_at else None,
+            }
+            for m in modes
+        ]
+        if as_json:
+            click.echo(json.dumps(payload, indent=2))
+            return
+        if not payload:
+            click.echo("(no users)")
+            return
+        for m in payload:
+            extra = f" → reverts at {m['revert_at']}" if m["revert_at"] else ""
+            click.echo(f"{m['user_id']:8s} {m['mode']}{extra}")
+        return
+
+    if mode is None:
+        # No mode argument and not --list ⇒ show this user's current mode.
+        with get_session() as session:
+            resolved = resolve_mode(session, user_id)
+        payload = {
+            "user_id": resolved.user_id,
+            "mode": resolved.mode,
+            "revert_at": resolved.revert_at.isoformat() if resolved.revert_at else None,
+            "reverted_now": resolved.reverted_now,
+        }
+        if as_json:
+            click.echo(json.dumps(payload, indent=2))
+            return
+        extra = f" (reverts at {resolved.revert_at})" if resolved.revert_at else ""
+        click.echo(f"{user_id}: {resolved.mode}{extra}")
+        return
+
+    if mode not in VALID_MODES:
+        click.secho(
+            f"error: mode must be one of {VALID_MODES}, got {mode!r}",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    for_seconds = None
+    if for_duration is not None:
+        try:
+            for_seconds = _parse_duration(for_duration)
+        except ValueError as e:
+            click.secho(f"error: bad --for value: {e}", fg="red", err=True)
+            sys.exit(1)
+
+    try:
+        with get_session() as session:
+            result = set_mode(session, user_id, mode, for_seconds=for_seconds)
+    except ValueError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+
+    payload = {
+        "user_id": result.user_id,
+        "mode": result.mode,
+        "revert_at": result.revert_at.isoformat() if result.revert_at else None,
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    extra = f" (reverts at {result.revert_at})" if result.revert_at else ""
+    click.echo(f"{user_id} → {mode}{extra}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()  # type: ignore[no-value-for-parameter]

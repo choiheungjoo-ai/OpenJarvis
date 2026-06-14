@@ -75,13 +75,29 @@ class Scheduler:
         if now is None:
             now = datetime.now()
 
-        report = ScheduleReport(user_id=user_id, mode=mode)
+        # Heal expired time-bounded modes before reading anything.
+        from newton.proactive.modes import apply_revert_due, resolve_mode
+
+        apply_revert_due(db_session, now=now)
 
         # Auto-ignore stale notifications first so the penalty in the
         # anticipation predict() below already reflects them.
         from newton.proactive.learning import mark_stale_as_ignored
 
         mark_stale_as_ignored(db_session, now=now)
+
+        # If the caller didn't pin the mode, read the user's stored
+        # ``users.proactive_mode`` column. CLI surfaces still allow an
+        # explicit ``--mode`` override; passing it through here just
+        # bypasses the lookup.
+        if mode == "__auto__":
+            mode = resolve_mode(
+                db_session,
+                user_id,
+                default=self.engine.config.default_mode,
+                now=now,
+            ).mode
+        report = ScheduleReport(user_id=user_id, mode=mode)
 
         if mode == "off":
             report.reason = "mode=off"
