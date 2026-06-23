@@ -1743,7 +1743,10 @@ def voice_tts(
     resolved = router.resolve(persona_id, language)
     try:
         result = resolved.engine.synthesize(
-            text, language=language, voice_reference=voice_ref
+            text,
+            language=language,
+            voice_reference=voice_ref,
+            ref_text=resolved.route.ref_text,
         )
     except ModuleNotFoundError as e:
         click.secho(

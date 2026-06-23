@@ -28,9 +28,14 @@ class _StubEngine(TTS):
         self.name = name
         self.calls: list[dict] = []
 
-    def synthesize(self, text, *, language=None, voice_reference=None):
+    def synthesize(self, text, *, language=None, voice_reference=None, ref_text=None):
         self.calls.append(
-            {"text": text, "language": language, "voice_reference": voice_reference}
+            {
+                "text": text,
+                "language": language,
+                "voice_reference": voice_reference,
+                "ref_text": ref_text,
+            }
         )
         return TTSResult(audio=np.zeros(1, dtype=np.float32), sample_rate=16000)
 
@@ -58,7 +63,7 @@ def test_router_resolves_first_matching_route():
             TTSRouteConfig(
                 persona="jarvis",
                 language="ko",
-                engine="qwen3_tts_1.7b",
+                engine="qwen3_tts_jarvis",
                 voice_reference="jarvis/ko-001.wav",
             ),
         ],
@@ -66,9 +71,9 @@ def test_router_resolves_first_matching_route():
     factory, _ = _factory_factory()
     router = TTSRouter(config=cfg, engine_factory=factory)
     res = router.resolve("jarvis", "ko")
-    assert res.route.engine == "qwen3_tts_1.7b"
+    assert res.route.engine == "qwen3_tts_jarvis"
     assert res.voice_reference == Path("data/voices/jarvis/ko-001.wav")
-    assert res.engine.name == "qwen3_tts_1.7b"
+    assert res.engine.name == "qwen3_tts_jarvis"
 
 
 def test_router_uses_voice_root_override(tmp_path):
@@ -78,7 +83,7 @@ def test_router_uses_voice_root_override(tmp_path):
             TTSRouteConfig(
                 persona="jarvis",
                 language="ko",
-                engine="qwen3_tts_1.7b",
+                engine="qwen3_tts_jarvis",
                 voice_reference="jarvis/ko-001.wav",
             ),
         ],
@@ -96,7 +101,7 @@ def test_router_wildcard_language_matches_any():
             TTSRouteConfig(
                 persona="butler",
                 language="any",
-                engine="qwen3_tts_0.6b",
+                engine="qwen3_tts_base",
                 voice_reference="butler/ko-001.wav",
             ),
         ],
@@ -105,8 +110,8 @@ def test_router_wildcard_language_matches_any():
     router = TTSRouter(config=cfg, engine_factory=factory)
     res_ko = router.resolve("butler", "ko")
     res_en = router.resolve("butler", "en")
-    assert res_ko.route.engine == "qwen3_tts_0.6b"
-    assert res_en.route.engine == "qwen3_tts_0.6b"
+    assert res_ko.route.engine == "qwen3_tts_base"
+    assert res_en.route.engine == "qwen3_tts_base"
 
 
 def test_router_wildcard_persona_matches_any():
@@ -116,15 +121,15 @@ def test_router_wildcard_persona_matches_any():
             TTSRouteConfig(
                 persona="any",
                 language="ko",
-                engine="qwen3_tts_0.6b",
+                engine="qwen3_tts_base",
                 voice_reference=None,
             ),
         ],
     )
     factory, _ = _factory_factory()
     router = TTSRouter(config=cfg, engine_factory=factory)
-    assert router.resolve("jarvis", "ko").route.engine == "qwen3_tts_0.6b"
-    assert router.resolve("friday", "ko").route.engine == "qwen3_tts_0.6b"
+    assert router.resolve("jarvis", "ko").route.engine == "qwen3_tts_base"
+    assert router.resolve("friday", "ko").route.engine == "qwen3_tts_base"
 
 
 # ── ordering precedence ──────────────────────────────────────────────────
@@ -154,7 +159,7 @@ def test_router_raises_when_no_route_matches():
     cfg = TTSConfig(
         voice_root="data/voices",
         routes=[
-            TTSRouteConfig(persona="butler", language="ko", engine="qwen3_tts_0.6b"),
+            TTSRouteConfig(persona="butler", language="ko", engine="qwen3_tts_base"),
         ],
     )
     factory, _ = _factory_factory()
@@ -174,12 +179,12 @@ def test_find_route_does_not_construct_engine():
     cfg = TTSConfig(
         voice_root="data/voices",
         routes=[
-            TTSRouteConfig(persona="jarvis", language="ko", engine="qwen3_tts_1.7b"),
+            TTSRouteConfig(persona="jarvis", language="ko", engine="qwen3_tts_jarvis"),
         ],
     )
     router = TTSRouter(config=cfg, engine_factory=boom_factory)
     route = router.find_route("jarvis", "ko")
-    assert route.engine == "qwen3_tts_1.7b"
+    assert route.engine == "qwen3_tts_jarvis"
     assert boom_calls["n"] == 0
 
 
@@ -203,8 +208,8 @@ def test_router_caches_engine_per_name():
     cfg = TTSConfig(
         voice_root="data/voices",
         routes=[
-            TTSRouteConfig(persona="jarvis", language="ko", engine="qwen3_tts_1.7b"),
-            TTSRouteConfig(persona="friday", language="ko", engine="qwen3_tts_1.7b"),
+            TTSRouteConfig(persona="jarvis", language="ko", engine="qwen3_tts_jarvis"),
+            TTSRouteConfig(persona="friday", language="ko", engine="qwen3_tts_jarvis"),
         ],
     )
     factory, registry = _factory_factory()
@@ -220,8 +225,8 @@ def test_router_constructs_separate_engines_for_distinct_names():
     cfg = TTSConfig(
         voice_root="data/voices",
         routes=[
-            TTSRouteConfig(persona="butler", language="any", engine="qwen3_tts_0.6b"),
-            TTSRouteConfig(persona="jarvis", language="ko", engine="qwen3_tts_1.7b"),
+            TTSRouteConfig(persona="butler", language="any", engine="qwen3_tts_base"),
+            TTSRouteConfig(persona="jarvis", language="ko", engine="qwen3_tts_jarvis"),
         ],
     )
     factory, _ = _factory_factory()
@@ -239,7 +244,7 @@ def test_route_without_voice_reference_yields_none():
     cfg = TTSConfig(
         voice_root="data/voices",
         routes=[
-            TTSRouteConfig(persona="any", language="any", engine="qwen3_tts_0.6b"),
+            TTSRouteConfig(persona="any", language="any", engine="qwen3_tts_base"),
         ],
     )
     factory, _ = _factory_factory()
@@ -252,11 +257,13 @@ def test_route_without_voice_reference_yields_none():
 
 
 def test_default_factory_constructs_qwen3_engines():
-    e_06 = default_engine_factory("qwen3_tts_0.6b")
-    e_17 = default_engine_factory("qwen3_tts_1.7b")
-    # The Qwen3TTS adapter sets name from model_size — confirm it.
-    assert e_06.name == "qwen3_tts_0.6b"
-    assert e_17.name == "qwen3_tts_1.7b"
+    e_base = default_engine_factory("qwen3_tts_base")
+    e_jarvis = default_engine_factory("qwen3_tts_jarvis")
+    # The factory wires the verified clone vs custom-voice flavours.
+    assert e_base.name == "qwen3_tts_base"
+    assert e_base.speaker is None  # type: ignore[attr-defined]
+    assert e_jarvis.name == "qwen3_tts_jarvis"
+    assert e_jarvis.speaker == "jarvis"  # type: ignore[attr-defined]
 
 
 def test_default_factory_constructs_chatterbox():
@@ -280,7 +287,7 @@ def test_routed_synthesize_calls_engine_with_reference():
             TTSRouteConfig(
                 persona="jarvis",
                 language="ko",
-                engine="qwen3_tts_1.7b",
+                engine="qwen3_tts_jarvis",
                 voice_reference="jarvis/ko-001.wav",
             ),
         ],
@@ -291,11 +298,12 @@ def test_routed_synthesize_calls_engine_with_reference():
     res.engine.synthesize(
         "안녕하십니까", language="ko", voice_reference=res.voice_reference
     )
-    stub: _StubEngine = registry["qwen3_tts_1.7b"]
+    stub: _StubEngine = registry["qwen3_tts_jarvis"]
     assert stub.calls == [
         {
             "text": "안녕하십니까",
             "language": "ko",
             "voice_reference": Path("data/voices/jarvis/ko-001.wav"),
+            "ref_text": None,
         }
     ]

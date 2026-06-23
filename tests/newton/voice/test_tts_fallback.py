@@ -24,7 +24,7 @@ class _GoodTTS(TTS):
     def __init__(self, name: str = "good") -> None:
         self.name = name
 
-    def synthesize(self, text, *, language=None, voice_reference=None):  # noqa: ARG002
+    def synthesize(self, text, *, language=None, voice_reference=None, ref_text=None):  # noqa: ARG002
         # 1 s of a tone — passes audio-validation.
         sr = 16000
         wave = (
@@ -42,7 +42,7 @@ class _BadTTS(TTS):
         self.name = name
         self._exc = exc
 
-    def synthesize(self, text, *, language=None, voice_reference=None):  # noqa: ARG002
+    def synthesize(self, text, *, language=None, voice_reference=None, ref_text=None):  # noqa: ARG002
         raise self._exc(f"{self.name} broke")
 
 
@@ -52,7 +52,7 @@ class _SilenceTTS(TTS):
     def __init__(self, name: str = "silence") -> None:
         self.name = name
 
-    def synthesize(self, text, *, language=None, voice_reference=None):  # noqa: ARG002
+    def synthesize(self, text, *, language=None, voice_reference=None, ref_text=None):  # noqa: ARG002
         # 1 s of silence — fails the silence_ratio check.
         return TTSResult(audio=np.zeros(16000, dtype=np.float32), sample_rate=16000)
 

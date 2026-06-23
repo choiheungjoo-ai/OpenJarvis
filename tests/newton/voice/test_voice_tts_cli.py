@@ -47,7 +47,7 @@ def _isolated_voice_dir(tmp_path: Path) -> tuple[Path, Path]:
         "  routes:\n"
         "    - persona: jarvis\n"
         "      language: ko\n"
-        "      engine: qwen3_tts_1.7b\n"
+        "      engine: qwen3_tts_jarvis\n"
         "      voice_reference: jarvis/samples/ko/ko-001.wav\n"
     )
     return cfg_dir, voices
@@ -56,7 +56,7 @@ def _isolated_voice_dir(tmp_path: Path) -> tuple[Path, Path]:
 class _StubEngine(TTS):
     """A TTS engine that records calls and emits a short tone."""
 
-    name = "qwen3_tts_1.7b"
+    name = "qwen3_tts_jarvis"
     last_call: dict | None = None
 
     def synthesize(
@@ -65,6 +65,7 @@ class _StubEngine(TTS):
         *,
         language: str | None = None,
         voice_reference=None,
+        ref_text: str | None = None,
     ) -> TTSResult:
         _StubEngine.last_call = {
             "text": text,
@@ -72,6 +73,7 @@ class _StubEngine(TTS):
             "voice_reference": (
                 str(voice_reference) if voice_reference is not None else None
             ),
+            "ref_text": ref_text,
         }
         # 0.5 s at 22050 Hz — passes save_wav round-trip.
         n = 11025
@@ -115,7 +117,7 @@ def test_voice_tts_happy_path(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
 
     payload = json.loads(result.output)
-    assert payload["engine"] == "qwen3_tts_1.7b"
+    assert payload["engine"] == "qwen3_tts_jarvis"
     assert payload["voice_reference"].endswith("ko-001.wav")
     assert payload["out"] == str(out)
     assert payload["sample_rate"] == 22050
@@ -171,7 +173,7 @@ def test_voice_tts_missing_sample_fails_before_loader_runs(tmp_path, monkeypatch
         "  routes:\n"
         "    - persona: jarvis\n"
         "      language: ko\n"
-        "      engine: qwen3_tts_1.7b\n"
+        "      engine: qwen3_tts_jarvis\n"
         "      voice_reference: jarvis/samples/ko/ko-001.wav\n"
     )
     monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
@@ -207,7 +209,7 @@ def test_voice_tts_module_not_found_message(tmp_path, monkeypatch):
     monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
 
     class _ModuleMissing(TTS):
-        name = "qwen3_tts_1.7b"
+        name = "qwen3_tts_jarvis"
 
         def synthesize(self, *_args, **_kwargs):
             raise ModuleNotFoundError("No module named 'qwen_tts'", name="qwen_tts")
@@ -232,7 +234,7 @@ def test_voice_tts_file_not_found_message(tmp_path, monkeypatch):
     monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
 
     class _WeightsMissing(TTS):
-        name = "qwen3_tts_1.7b"
+        name = "qwen3_tts_jarvis"
 
         def synthesize(self, *_args, **_kwargs):
             raise FileNotFoundError(

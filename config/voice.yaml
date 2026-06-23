@@ -51,31 +51,41 @@ stage1:
 #
 # Persona + language → engine + voice sample. The router caches
 # engine instances; the engine itself stays lazy until its first
-# synthesize. Voice references are relative to ``voice_root`` and
-# may not exist yet (samples come from step 5.4).
+# synthesize. Two synthesis modes:
+#
+#   * qwen3_tts_jarvis (custom voice) — fine-tuned model, no reference
+#     clip needed; ``speaker: jarvis`` baked in.
+#   * qwen3_tts_base   (clone)        — Base Qwen3-TTS model; needs a
+#     ``voice_reference`` clip AND its exact ``ref_text`` transcript.
+#
+# Voice references are relative to ``voice_root`` and may not exist
+# yet (samples come from step 5.4 / voice.local.yaml).
 tts:
   voice_root: data/voices
   routes:
     - persona: butler
       language: any
-      engine: qwen3_tts_0.6b
+      engine: qwen3_tts_base
       voice_reference: butler/ko-001.wav
+      # ref_text: "…the exact transcript of butler/ko-001.wav…"
     - persona: jarvis
       language: ko
-      engine: qwen3_tts_1.7b
-      voice_reference: jarvis/samples/ko/ko-001.wav
+      engine: qwen3_tts_jarvis
+      speaker: jarvis
     - persona: jarvis
       language: en
-      engine: chatterbox
-      voice_reference: jarvis/samples/en/en-001.wav
+      engine: qwen3_tts_jarvis
+      speaker: jarvis
     - persona: friday
       language: ko
-      engine: qwen3_tts_1.7b
+      engine: qwen3_tts_base
       voice_reference: friday/ko-001.wav
+      # ref_text: "…the exact transcript of friday/ko-001.wav…"
     - persona: friday
       language: en
-      engine: qwen3_tts_1.7b
+      engine: qwen3_tts_base
       voice_reference: friday/en-001.wav
+      # ref_text: "…the exact transcript of friday/en-001.wav…"
 
 # ── Multi-speaker session lock (block 5 step 5.10) ─────────────────────
 session_lock:

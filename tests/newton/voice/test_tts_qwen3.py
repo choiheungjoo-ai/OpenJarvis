@@ -1,4 +1,9 @@
-"""Tests for newton.voice.tts.qwen3 — adapter contract + lazy load."""
+"""Tests for newton.voice.tts.qwen3 — verified clone + custom-voice API.
+
+Covers the two synthesis modes against fake models, the language-code
+translation at the adapter boundary, and the Strategy-D guarantee that
+``qwen_tts`` / torch never import at module load.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +15,7 @@ import numpy as np
 import pytest
 
 from newton.voice.tts.base import TTS, TTSResult, save_wav
-from newton.voice.tts.qwen3 import Qwen3TTS
+from newton.voice.tts.qwen3 import Qwen3TTS, _to_full_language
 
 # ── TTS ABC ───────────────────────────────────────────────────────────────
 
@@ -26,7 +31,9 @@ def test_tts_subclass_requires_name():
         class Nameless(TTS):
             name = ""
 
-            def synthesize(self, text, *, language=None, voice_reference=None):  # noqa: ARG002
+            def synthesize(
+                self, text, *, language=None, voice_reference=None, ref_text=None
+            ):  # noqa: ARG002
                 return TTSResult(audio=np.zeros(1), sample_rate=16000)
 
 
@@ -66,29 +73,50 @@ def test_save_wav_clips_out_of_range(tmp_path):
     assert decoded[1] == -32767
 
 
-# ── Qwen3TTS construction + size validation ─────────────────────────────
+# ── Qwen3TTS construction + identity ─────────────────────────────────────
 
 
-def test_qwen3_rejects_unknown_size():
-    with pytest.raises(ValueError, match="model_size"):
-        Qwen3TTS(model_size="100B")
+def test_qwen3_default_name_and_no_speaker():
+    t = Qwen3TTS(loader=lambda _path: _CloneModel())
+    assert t.name == "qwen3_tts"
+    assert t.speaker is None
 
 
-def test_qwen3_name_embeds_size():
-    """The fallback log keys off ``name``; size must be in it."""
-    t06 = Qwen3TTS(model_size="0.6B", loader=lambda *_: None)
-    t17 = Qwen3TTS(model_size="1.7B", loader=lambda *_: None)
-    assert t06.name == "qwen3_tts_0.6b"
-    assert t17.name == "qwen3_tts_1.7b"
+def test_qwen3_custom_name_and_speaker_carried():
+    """The fallback log keys off ``name``; the engine mode keys off ``speaker``."""
+    t_base = Qwen3TTS(name="qwen3_tts_base", loader=lambda _p: _CloneModel())
+    t_jarvis = Qwen3TTS(
+        name="qwen3_tts_jarvis",
+        speaker="jarvis",
+        loader=lambda _p: _CustomModel(),
+    )
+    assert t_base.name == "qwen3_tts_base"
+    assert t_base.speaker is None
+    assert t_jarvis.name == "qwen3_tts_jarvis"
+    assert t_jarvis.speaker == "jarvis"
 
 
-# ── Laziness contract ────────────────────────────────────────────────────
+# ── Laziness contract (Strategy D) ───────────────────────────────────────
+
+
+def test_qwen3_does_not_import_qwen_tts_at_module_load():
+    """Importing newton.voice.tts.qwen3 must not pull qwen_tts or torch."""
+    # If a prior test imported qwen_tts, pop it so we measure only what
+    # *this* import path drags in.
+    for mod in ("qwen_tts", "torch"):
+        sys.modules.pop(mod, None)
+    # Re-import the adapter module to force its side effects.
+    sys.modules.pop("newton.voice.tts.qwen3", None)
+    import newton.voice.tts.qwen3  # noqa: F401, PLC0415
+
+    assert "qwen_tts" not in sys.modules
+    assert "torch" not in sys.modules
 
 
 def test_qwen3_does_not_import_qwen_tts_at_construction():
     sentinel = sys.modules.pop("qwen_tts", None)
     try:
-        t = Qwen3TTS(model_size="0.6B", loader=lambda *_: None)
+        t = Qwen3TTS(loader=lambda _path: None)
         assert t._model is None  # noqa: SLF001
         assert "qwen_tts" not in sys.modules
     finally:
@@ -99,88 +127,221 @@ def test_qwen3_does_not_import_qwen_tts_at_construction():
 def test_qwen3_does_not_call_loader_until_synthesize():
     calls = {"n": 0}
 
-    def fake_loader(_size, _root):
+    def fake_loader(_path):
         calls["n"] += 1
-        return _FakeModel()
+        return _CustomModel()
 
-    t = Qwen3TTS(model_size="0.6B", loader=fake_loader)
+    t = Qwen3TTS(speaker="jarvis", loader=fake_loader)
     assert calls["n"] == 0
-    t.synthesize("hello")
+    t.synthesize("hello", language="en")
     assert calls["n"] == 1
-    t.synthesize("again")
+    t.synthesize("again", language="en")
     # The model is cached — second synthesize doesn't reload.
     assert calls["n"] == 1
 
 
-# ── synthesize behaviour with injected loader ────────────────────────────
+# ── language mapping ─────────────────────────────────────────────────────
 
 
-class _FakeModel:
-    """Mimics a qwen-tts model with a generate() that returns numpy."""
+def test_to_full_language_short_codes():
+    assert _to_full_language("ko") == "korean"
+    assert _to_full_language("en") == "english"
+
+
+def test_to_full_language_passthrough_for_full_names():
+    assert _to_full_language("korean") == "korean"
+    assert _to_full_language("english") == "english"
+
+
+def test_to_full_language_none_is_passthrough():
+    assert _to_full_language(None) is None
+
+
+def test_to_full_language_rejects_unknown():
+    with pytest.raises(ValueError, match="unsupported Qwen3-TTS language"):
+        _to_full_language("ja")
+
+
+# ── fake models for the two API surfaces ────────────────────────────────
+
+
+class _CustomModel:
+    """Mimics the fine-tuned model's ``generate_custom_voice``."""
 
     def __init__(self) -> None:
         self.last_call: dict | None = None
-        # Two seconds of a fixed-frequency tone — distinguishable from silence.
         self._wave = np.sin(
             2 * np.pi * 220 * np.linspace(0, 2, 48000, dtype=np.float32)
         )
 
-    def generate(self, *, text, ref_audio, language):
-        self.last_call = {"text": text, "ref_audio": ref_audio, "language": language}
-        return self._wave
+    def generate_custom_voice(self, *, text, speaker, language):
+        self.last_call = {"text": text, "speaker": speaker, "language": language}
+        return [self._wave], 24000
+
+    def generate_voice_clone(self, **_kw):  # noqa: D401
+        raise AssertionError(
+            "custom-voice model must not be asked for generate_voice_clone"
+        )
 
 
-def _fake_loader(_size, _root):
-    return _FakeModel()
+class _CloneModel:
+    """Mimics the Base model's ``generate_voice_clone``."""
+
+    def __init__(self) -> None:
+        self.last_call: dict | None = None
+        self._wave = np.sin(
+            2 * np.pi * 220 * np.linspace(0, 2, 48000, dtype=np.float32)
+        )
+
+    def generate_voice_clone(self, *, text, language, ref_audio, ref_text):
+        self.last_call = {
+            "text": text,
+            "language": language,
+            "ref_audio": ref_audio,
+            "ref_text": ref_text,
+        }
+        return [self._wave], 24000
+
+    def generate_custom_voice(self, **_kw):  # noqa: D401
+        raise AssertionError("clone model must not be asked for generate_custom_voice")
+
+
+# ── custom-voice mode ───────────────────────────────────────────────────
+
+
+def test_custom_voice_calls_generate_custom_voice_with_full_language():
+    fake = _CustomModel()
+    t = Qwen3TTS(
+        name="qwen3_tts_jarvis",
+        speaker="jarvis",
+        loader=lambda _p: fake,
+    )
+    t.synthesize("Good evening, sir.", language="en")
+    assert fake.last_call == {
+        "text": "Good evening, sir.",
+        "speaker": "jarvis",
+        "language": "english",  # short code translated at the adapter boundary
+    }
+
+
+def test_custom_voice_ignores_voice_reference_and_ref_text():
+    """The mode is fixed by construction — caller-supplied refs are inert."""
+    fake = _CustomModel()
+    t = Qwen3TTS(speaker="jarvis", loader=lambda _p: fake)
+    t.synthesize(
+        "안녕하십니까, sir.",
+        language="ko",
+        voice_reference=Path("/tmp/should-be-ignored.wav"),
+        ref_text="anything",
+    )
+    assert fake.last_call == {
+        "text": "안녕하십니까, sir.",
+        "speaker": "jarvis",
+        "language": "korean",
+    }
+
+
+# ── clone mode ──────────────────────────────────────────────────────────
+
+
+def test_clone_calls_generate_voice_clone_with_ref_audio_and_ref_text():
+    fake = _CloneModel()
+    t = Qwen3TTS(name="qwen3_tts_base", loader=lambda _p: fake)
+    t.synthesize(
+        "Right away, sir.",
+        language="en",
+        voice_reference=Path("/tmp/jarvis-en.wav"),
+        ref_text="Good evening, sir.",
+    )
+    assert fake.last_call == {
+        "text": "Right away, sir.",
+        "language": "english",
+        "ref_audio": "/tmp/jarvis-en.wav",
+        "ref_text": "Good evening, sir.",
+    }
+
+
+def test_clone_without_ref_text_raises():
+    """Mismatched / missing ref_text mangles output — fail loud at the boundary."""
+    fake = _CloneModel()
+    t = Qwen3TTS(loader=lambda _p: fake)
+    with pytest.raises(ValueError, match="ref_text"):
+        t.synthesize(
+            "hi",
+            language="en",
+            voice_reference=Path("/tmp/x.wav"),
+            ref_text=None,
+        )
+    with pytest.raises(ValueError, match="ref_text"):
+        t.synthesize(
+            "hi",
+            language="en",
+            voice_reference=Path("/tmp/x.wav"),
+            ref_text="   ",
+        )
+    assert fake.last_call is None  # never called
+
+
+def test_clone_without_voice_reference_or_speaker_raises():
+    t = Qwen3TTS(loader=lambda _p: _CloneModel())
+    with pytest.raises(ValueError, match="speaker"):
+        t.synthesize("hi", language="en")
+
+
+def test_synthesize_rejects_empty_text():
+    t = Qwen3TTS(speaker="jarvis", loader=lambda _p: _CustomModel())
+    with pytest.raises(ValueError, match="non-empty"):
+        t.synthesize("   ", language="en")
+
+
+# ── output normalization ────────────────────────────────────────────────
 
 
 def test_synthesize_returns_tts_result_with_numpy_audio():
-    t = Qwen3TTS(model_size="0.6B", loader=_fake_loader)
-    out = t.synthesize("hello")
+    t = Qwen3TTS(speaker="jarvis", loader=lambda _p: _CustomModel())
+    out = t.synthesize("hello", language="en")
     assert isinstance(out, TTSResult)
     assert out.audio.dtype == np.float32
     assert out.sample_rate > 0
 
 
-def test_synthesize_passes_text_language_and_voice_reference_through():
-    t = Qwen3TTS(model_size="0.6B", loader=_fake_loader)
-    t.synthesize(
-        "안녕하십니까", language="ko", voice_reference=Path("/tmp/jarvis-ko.wav")
-    )
-    fake = t._model  # noqa: SLF001
-    assert fake.last_call == {
-        "text": "안녕하십니까",
-        "ref_audio": "/tmp/jarvis-ko.wav",
-        "language": "ko",
-    }
+def test_normalize_output_takes_first_wav_from_list_tuple():
+    """The verified API returns ``(list[np.ndarray], sr)`` — adapter takes [0]."""
+
+    class TwoWavModel:
+        def generate_custom_voice(self, **_kw):
+            first = np.full(8000, 0.5, dtype=np.float32)
+            second = np.full(8000, -0.5, dtype=np.float32)  # would be wrong pick
+            return [first, second], 22050
+
+    t = Qwen3TTS(speaker="jarvis", loader=lambda _p: TwoWavModel())
+    out = t.synthesize("x", language="en")
+    assert out.sample_rate == 22050
+    assert len(out.audio) == 8000
+    # First wav is +0.5 — confirms we took [0].
+    assert float(out.audio[0]) == pytest.approx(0.5)
 
 
-def test_synthesize_rejects_empty_text():
-    t = Qwen3TTS(model_size="0.6B", loader=_fake_loader)
-    with pytest.raises(ValueError, match="non-empty"):
-        t.synthesize("   ")
-
-
-def test_normalize_output_accepts_tuple():
-    """A model that returns (audio, sr) tuple is handled."""
+def test_normalize_output_accepts_tuple_array():
+    """Legacy shape ``(np.ndarray, sr)`` still works in case upstream tweaks."""
 
     class TupleModel:
-        def generate(self, **_kw):
+        def generate_custom_voice(self, **_kw):
             return np.zeros(8000, dtype=np.float32), 24000
 
-    t = Qwen3TTS(model_size="0.6B", loader=lambda *_: TupleModel())
-    out = t.synthesize("x")
+    t = Qwen3TTS(speaker="jarvis", loader=lambda _p: TupleModel())
+    out = t.synthesize("x", language="en")
     assert out.sample_rate == 24000
     assert len(out.audio) == 8000
 
 
 def test_normalize_output_accepts_dict():
     class DictModel:
-        def generate(self, **_kw):
+        def generate_custom_voice(self, **_kw):
             return {"audio": np.zeros(2400, dtype=np.float32), "sample_rate": 12000}
 
-    t = Qwen3TTS(model_size="1.7B", loader=lambda *_: DictModel())
-    out = t.synthesize("x")
+    t = Qwen3TTS(speaker="jarvis", loader=lambda _p: DictModel())
+    out = t.synthesize("x", language="en")
     assert out.sample_rate == 12000
     assert len(out.audio) == 2400
 
@@ -190,10 +351,7 @@ def test_normalize_output_accepts_dict():
 
 def test_default_loader_raises_when_weights_missing(tmp_path):
     """The shipped loader gives a clear error when the path is empty."""
-    # Don't import qwen_tts (we don't have it); test the path-check
-    # before the import would even run.
     from newton.voice.tts.qwen3 import _default_loader
 
-    # Point at a directory that exists but has no 0.6B subdir.
     with pytest.raises(FileNotFoundError, match="weights not found"):
-        _default_loader("0.6B", tmp_path)
+        _default_loader(tmp_path / "does-not-exist")

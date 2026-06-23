@@ -14,7 +14,7 @@ Everything is config-driven — no hardcoded "persona X needs engine Y"
 mapping in Python. New personas land by editing the YAML.
 
 Engines are cached per ``engine_name`` for the lifetime of the router,
-not per route — two routes pointing at ``qwen3_tts_1.7b`` share one
+not per route — two routes pointing at ``qwen3_tts_jarvis`` share one
 instance. Lazy-load semantics from the underlying adapter mean the
 heavy model itself loads only on first ``synthesize``.
 """
@@ -109,16 +109,30 @@ def default_engine_factory(name: str) -> TTS:
     actually load qwen-tts / chatterbox. The factory is the single
     place that knows about concrete engine classes; the router stays
     string-keyed.
+
+    Two Qwen3-TTS flavours ship by default:
+
+    * ``qwen3_tts_base`` — Base cloning model (any persona; needs
+      ``voice_reference`` + ``ref_text`` per synthesize call).
+    * ``qwen3_tts_jarvis`` — JARVIS fine-tuned model (``speaker="jarvis"``;
+      no reference needed).
     """
     # Local imports keep the router import-light when only one
     # engine is needed.
     from newton.voice.tts.chatterbox import ChatterboxTTS  # noqa: PLC0415
-    from newton.voice.tts.qwen3 import Qwen3TTS  # noqa: PLC0415
+    from newton.voice.tts.qwen3 import (  # noqa: PLC0415
+        Qwen3TTS,
+        default_jarvis_model_path,
+    )
 
-    if name == "qwen3_tts_0.6b":
-        return Qwen3TTS(model_size="0.6B")
-    if name == "qwen3_tts_1.7b":
-        return Qwen3TTS(model_size="1.7B")
+    if name == "qwen3_tts_base":
+        return Qwen3TTS(name="qwen3_tts_base")
+    if name == "qwen3_tts_jarvis":
+        return Qwen3TTS(
+            name="qwen3_tts_jarvis",
+            speaker="jarvis",
+            model_path=default_jarvis_model_path(),
+        )
     if name == "chatterbox":
         return ChatterboxTTS()
     raise ValueError(f"unknown TTS engine: {name!r}")

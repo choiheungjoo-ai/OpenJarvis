@@ -76,6 +76,7 @@ class ChatterboxTTS(TTS):
         *,
         language: str | None = None,
         voice_reference: Path | str | None = None,
+        ref_text: str | None = None,  # noqa: ARG002 — chatterbox has no transcript param
     ) -> TTSResult:
         if not text.strip():
             raise ValueError("text must be non-empty")

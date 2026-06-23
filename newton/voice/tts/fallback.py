@@ -70,6 +70,7 @@ class _TextOnlyTTS(TTS):
         *,
         language: str | None = None,  # noqa: ARG002
         voice_reference=None,  # noqa: ANN001, ARG002
+        ref_text: str | None = None,  # noqa: ARG002
     ) -> TTSResult:
         # Return an empty audio array tagged with the marker.
         # Callers detect via ``engine_used == "text_only"`` or via
@@ -102,6 +103,7 @@ class FallbackChain:
         db_session: Session | None,
         *,
         voice_reference=None,  # noqa: ANN001
+        ref_text: str | None = None,
     ) -> FallbackOutcome:
         """Try each engine until one succeeds. Log every failure."""
         fallbacks: list[str] = []
@@ -117,6 +119,7 @@ class FallbackChain:
                     text,
                     language=self.language,
                     voice_reference=voice_reference,
+                    ref_text=ref_text,
                 )
             except (OSError, RuntimeError, MemoryError) as e:
                 reason = type(e).__name__

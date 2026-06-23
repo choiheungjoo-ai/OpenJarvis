@@ -53,12 +53,15 @@ class TTS(ABC):
         *,
         language: str | None = None,
         voice_reference: Path | str | None = None,
+        ref_text: str | None = None,
     ) -> TTSResult:
         """Synthesize ``text``; return audio.
 
         ``voice_reference`` is the path to a sample WAV for cloning
-        engines (Qwen3-TTS, Chatterbox). Engines that don't clone
-        may ignore it.
+        engines (Qwen3-TTS, Chatterbox). ``ref_text`` is the exact
+        transcript of that clip — Qwen3-TTS's ``generate_voice_clone``
+        requires it. Engines that don't clone (or don't need a
+        transcript) may ignore either.
         """
 
 
