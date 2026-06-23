@@ -345,7 +345,11 @@ class AnticipationEngine:
             # the cost is one indexed query per pattern per predict()
             # call — fine at the volumes the scheduler runs at.
             penalty = compute_pattern_penalty(
-                db_session, context.user_id, row.pattern_id, self._reactions
+                db_session,
+                context.user_id,
+                row.pattern_id,
+                self._reactions,
+                now=context.now,
             )
             effective_confidence = confidence * (1.0 - penalty)
             final = effective_confidence * rr.relevance
