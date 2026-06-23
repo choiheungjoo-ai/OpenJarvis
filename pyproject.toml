@@ -123,6 +123,7 @@ sandbox-docker = ["docker>=7.0"]
 dashboard = ["textual>=0.80"]
 speech = ["faster-whisper>=1.0"]
 speech-deepgram = ["deepgram-sdk>=3.0"]
+voice-id = ["resemblyzer>=0.1.4"]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
 mining-pearl-cpu = [
@@ -167,6 +168,7 @@ testpaths = ["tests"]
 markers = [
     "qdrant: requires a live Qdrant instance at localhost:6333",
     "embedding: requires a live TEI service (BGE-M3) at localhost:8080",
+    "voice_id: requires resemblyzer + torch (optional voice-id extra)",
     "amd: requires AMD GPU",
     "apple: requires Apple Silicon",
     "cloud: requires cloud API keys",

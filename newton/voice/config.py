@@ -201,6 +201,43 @@ class SessionLockConfig(BaseModel):
         return v
 
 
+class VoiceIdConfig(BaseModel):
+    """Voice ID enrollment + recognition (step 5.9).
+
+    Resemblyzer is an optional install (``voice-id`` extra) so default
+    install stays torch-free. The backend lazy-imports its model on
+    first use; the ``fake`` backend exists for tests and for dev hosts
+    without the extra.
+    """
+
+    # ``resemblyzer`` or ``fake``. Tests flip this to ``fake`` so
+    # nothing imports torch.
+    backend: str = "resemblyzer"
+    # Resemblyzer runs cheaply on CPU; CPU also avoids the local
+    # sm_120 CUDA toolchain. Pass through to ``VoiceEncoder``.
+    device: str = "cpu"
+    # Cosine similarity above which a match is accepted by
+    # ``VoiceIdService.identify``.
+    threshold: float = 0.75
+    # Resemblyzer's expected mono sample rate. Stored here so callers
+    # can pass it through without a literal.
+    sample_rate: int = 16000
+
+    @field_validator("threshold")
+    @classmethod
+    def _threshold_range(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("threshold must be in [0, 1]")
+        return v
+
+    @field_validator("sample_rate")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("sample_rate must be > 0")
+        return v
+
+
 class VoiceConfig(BaseModel):
     """Top-level voice configuration."""
 
@@ -209,6 +246,7 @@ class VoiceConfig(BaseModel):
     stage1: Stage1Config = Field(default_factory=Stage1Config)
     tts: TTSConfig = Field(default_factory=TTSConfig)
     session_lock: SessionLockConfig = Field(default_factory=SessionLockConfig)
+    voice_id: VoiceIdConfig = Field(default_factory=VoiceIdConfig)
 
 
 class VoiceConfigError(RuntimeError):
@@ -269,6 +307,7 @@ __all__ = [
     "VADConfig",
     "VoiceConfig",
     "VoiceConfigError",
+    "VoiceIdConfig",
     "WakeConfig",
     "load_voice_config",
 ]

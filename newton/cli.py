@@ -1790,6 +1790,73 @@ def voice_tts(
     )
 
 
+# ── voice id (step 5.9 — Resemblyzer enrollment / verification) ────────
+
+
+@voice.group("id")
+def voice_id_group() -> None:
+    """Speaker enrollment + recognition (Resemblyzer)."""
+
+
+@voice_id_group.command("register")
+@click.argument("user_id")
+@click.argument("wav", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True)
+def voice_id_register(user_id: str, wav: Path, as_json: bool) -> None:
+    """Compute and store ``user_id``'s voice embedding from ``WAV``."""
+    from newton.voice.voice_id import VoiceIdError, VoiceIdService
+
+    try:
+        with get_session() as session:
+            service = VoiceIdService.from_config(session)
+            service.register(user_id, wav)
+    except VoiceIdError as e:
+        click.secho(f"error: {e}", fg="red", err=True)
+        sys.exit(1)
+    except ModuleNotFoundError as e:
+        click.secho(
+            f"error: {e.name} not installed. "
+            "Install the voice-id extra: `uv sync --extra voice-id`.",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps({"user_id": user_id, "registered": True}))
+        return
+    click.echo(f"registered voice embedding for {user_id} from {wav}")
+
+
+@voice_id_group.command("verify")
+@click.argument("wav", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True)
+def voice_id_verify(wav: Path, as_json: bool) -> None:
+    """Identify the speaker of ``WAV`` against registered users."""
+    from newton.voice.voice_id import VoiceIdService
+
+    try:
+        with get_session() as session:
+            service = VoiceIdService.from_config(session)
+            matched_user, confidence = service.identify(wav)
+    except ModuleNotFoundError as e:
+        click.secho(
+            f"error: {e.name} not installed. "
+            "Install the voice-id extra: `uv sync --extra voice-id`.",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps({"user_id": matched_user, "confidence": confidence}))
+        return
+    if matched_user is None:
+        click.echo(f"no match (best confidence: {confidence:.2f})")
+        return
+    click.echo(f"user: {matched_user}, confidence: {confidence:.2f}")
+
+
 # -----------------------------------------------------------------------------
 # memory group
 # -----------------------------------------------------------------------------

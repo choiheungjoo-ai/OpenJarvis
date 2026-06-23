@@ -74,3 +74,23 @@ session_lock:
   # Seconds of silence from the locked user before the session unlocks
   # and the next Stage-1 wake-word / clap starts fresh.
   timeout_seconds: 30
+
+# ── Voice ID enrollment + recognition (block 5 step 5.9) ───────────────
+#
+# Resemblyzer-backed speaker embeddings. The backend stays out of
+# default install (Strategy D: no torch in core); install the
+# ``voice-id`` extra to switch ``backend`` to ``resemblyzer``.
+voice_id:
+  # ``resemblyzer`` → torch-backed encoder (needs the voice-id extra).
+  # ``fake`` → deterministic hash-based encoder for tests / dev.
+  backend: resemblyzer
+  # Resemblyzer ships a CPU-light encoder; CPU keeps us off the
+  # RTX 5090 / sm_120 CUDA toolchain and matches the design.
+  device: cpu
+  # Cosine similarity above which ``identify`` returns a match.
+  # 0.75 is a first-pass guess; tune on real recordings.
+  threshold: 0.75
+  # Resemblyzer's expected sample rate (preprocess_wav resamples
+  # internally, but the value lives in config so callers can pass it
+  # through without hardcoding).
+  sample_rate: 16000
