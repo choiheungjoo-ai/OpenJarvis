@@ -69,6 +69,9 @@ class VADConfig(BaseModel):
         return v
 
 
+CLAP_MODES = ("clap_shared", "clap_sir_only", "clap_off")
+
+
 class ClapConfig(BaseModel):
     """2-clap-in-sequence trigger.
 
@@ -78,6 +81,14 @@ class ClapConfig(BaseModel):
     model. The doc mentions an openWakeWord-trained clap classifier;
     the energy-peak approach is shipped first because it has no
     extra dep and is deterministic in tests.
+
+    Permission modes (block-5 §5.12) — who is allowed to wake Newton
+    via clap:
+
+        * ``clap_shared`` (default) — any registered user.
+        * ``clap_sir_only`` — clap is provisional; the next utterance
+          must Voice-ID as ``privileged_user_id`` to be confirmed.
+        * ``clap_off`` — clap is disabled; wake word only.
     """
 
     enabled: bool = True
@@ -89,6 +100,12 @@ class ClapConfig(BaseModel):
     # Maximum gap (ms) between the two peaks. Beyond this, we consider
     # the first peak a single noise event and reset.
     max_gap_ms: int = 500
+    # Permission mode (see class docstring). String-typed (rather than
+    # an Enum) so YAML overrides stay human-readable.
+    mode: str = "clap_shared"
+    # User_id that ``clap_sir_only`` confirms against. Default ``sir``
+    # mirrors the seeded owner; gf is never the privileged speaker.
+    privileged_user_id: str = "sir"
 
     @field_validator("peak_threshold")
     @classmethod
@@ -102,6 +119,13 @@ class ClapConfig(BaseModel):
     def _positive(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("must be > 0")
+        return v
+
+    @field_validator("mode")
+    @classmethod
+    def _known_mode(cls, v: str) -> str:
+        if v not in CLAP_MODES:
+            raise ValueError(f"mode must be one of {CLAP_MODES!r}, got {v!r}")
         return v
 
 
@@ -298,6 +322,7 @@ def load_voice_config() -> VoiceConfig:
 
 
 __all__ = [
+    "CLAP_MODES",
     "AudioConfig",
     "ClapConfig",
     "SessionLockConfig",

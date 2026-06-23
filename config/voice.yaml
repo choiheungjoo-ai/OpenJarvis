@@ -38,6 +38,14 @@ stage1:
     # filters door slams and single hand claps.
     min_gap_ms: 90
     max_gap_ms: 500
+    # Permission mode (block-5 §5.12):
+    #   clap_shared    — any registered user may wake via clap (default)
+    #   clap_sir_only  — clap is provisional; confirmed only when the
+    #                    first utterance Voice-IDs as ``privileged_user_id``
+    #   clap_off       — clap trigger disabled; wake word only
+    mode: clap_shared
+    # User_id checked by ``clap_sir_only``. ``sir`` mirrors the seeded owner.
+    privileged_user_id: sir
 
 # ── TTS routing (block 5 step 5.5) ─────────────────────────────────────
 #
