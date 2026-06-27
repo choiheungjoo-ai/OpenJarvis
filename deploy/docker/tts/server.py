@@ -45,12 +45,30 @@ _MODELS: dict[str, Any] = {}  # "jarvis" -> fine-tuned model, "base" -> clone mo
 
 def _load_models() -> None:
     """Import qwen-tts and load both models. Called once at startup."""
+    import torch  # lazy: only inside the container
     from qwen_tts import Qwen3TTSModel  # lazy: only inside the container
 
+    device = os.environ.get("TTS_DEVICE", "cuda:0")
+
+    def _load_on_device(path: str):
+        # Qwen3TTSModel.from_pretrained() lands on CPU and exposes no .to() /
+        # .cuda() of its own; the heavy nn.Module is the inner .model. Move
+        # that to the GPU and sync the wrapper's .device flag so generate()
+        # runs on CUDA. Without this the model infers on CPU (~7s vs ~2s).
+        model = Qwen3TTSModel.from_pretrained(path)
+        if torch.cuda.is_available() and hasattr(model, "model"):
+            model.model = model.model.to(device)
+            try:
+                model.device = torch.device(device)
+            except Exception:  # noqa: BLE001 — best-effort flag sync
+                pass
+        log.info("  loaded on device: %s", getattr(model, "device", "unknown"))
+        return model
+
     log.info("loading JARVIS fine-tuned model from %s", JARVIS_MODEL_DIR)
-    _MODELS["jarvis"] = Qwen3TTSModel.from_pretrained(JARVIS_MODEL_DIR)
+    _MODELS["jarvis"] = _load_on_device(JARVIS_MODEL_DIR)
     log.info("loading Base clone model from %s", BASE_MODEL_DIR)
-    _MODELS["base"] = Qwen3TTSModel.from_pretrained(BASE_MODEL_DIR)
+    _MODELS["base"] = _load_on_device(BASE_MODEL_DIR)
     log.info("both models loaded")
 
 
