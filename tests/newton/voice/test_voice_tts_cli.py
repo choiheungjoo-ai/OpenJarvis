@@ -267,6 +267,125 @@ def test_voice_tts_file_not_found_message(tmp_path, monkeypatch):
 # ── default output path when --out omitted ─────────────────────────────
 
 
+# ── --play wires through to playback.play_wav ─────────────────────────
+
+
+def test_voice_tts_no_play_does_not_call_playback(tmp_path, monkeypatch):
+    cfg_dir, voices = _isolated_voice_dir(tmp_path)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.voice.tts.router.default_engine_factory", _stub_factory)
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    def _explode(*args, **kwargs):
+        raise AssertionError("play_wav must not be called when --no-play")
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _explode)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "ko",
+            "--text",
+            "안녕",
+            "--out",
+            str(out),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["played"] is False
+    assert "playback_error" not in payload
+    assert out.exists()
+
+
+def test_voice_tts_play_invokes_play_wav_with_output_path(tmp_path, monkeypatch):
+    cfg_dir, voices = _isolated_voice_dir(tmp_path)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.voice.tts.router.default_engine_factory", _stub_factory)
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    seen: list[Path] = []
+
+    def _capture(path, **_kwargs):
+        seen.append(Path(path))
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _capture)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "ko",
+            "--text",
+            "안녕",
+            "--out",
+            str(out),
+            "--play",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert seen == [out]
+    payload = json.loads(result.output)
+    assert payload["played"] is True
+    assert payload["out"] == str(out)
+    assert out.exists()
+
+
+def test_voice_tts_play_failure_keeps_file_and_reports(tmp_path, monkeypatch):
+    cfg_dir, voices = _isolated_voice_dir(tmp_path)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.voice.tts.router.default_engine_factory", _stub_factory)
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    from newton.voice.playback import PlaybackError
+
+    def _boom(_path, **_kwargs):
+        raise PlaybackError("no audio player found")
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _boom)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "ko",
+            "--text",
+            "안녕",
+            "--out",
+            str(out),
+            "--play",
+            "--json",
+        ],
+    )
+    # Playback failure must not crash the CLI — the WAV is durable.
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["played"] is False
+    assert "no audio player found" in payload["playback_error"]
+    assert out.exists()
+
+
 def test_voice_tts_default_out_path_is_temp(tmp_path, monkeypatch):
     cfg_dir, voices = _isolated_voice_dir(tmp_path)
     monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))

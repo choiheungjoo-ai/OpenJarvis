@@ -1682,12 +1682,19 @@ def voice_samples_show(persona_id: str, as_json: bool) -> None:
     default=None,
     help="Output WAV path. Defaults to /tmp/newton-voice-<timestamp>.wav.",
 )
+@click.option(
+    "--play/--no-play",
+    "play",
+    default=False,
+    help="Play the resulting WAV through the system audio output after writing.",
+)
 @click.option("--json", "as_json", is_flag=True)
 def voice_tts(
     persona_id: str,
     language: str,
     text: str,
     out_path: str | None,
+    play: bool,
     as_json: bool,
 ) -> None:
     """Synthesize ``text`` for ``persona_id`` + ``language`` and write a WAV.
@@ -1771,6 +1778,19 @@ def voice_tts(
     out = Path(out_path)
     save_wav(result, out)
 
+    # 5) Optionally play the WAV. The file is the durable artifact —
+    # a playback failure must not delete it, just report and exit cleanly.
+    played = False
+    playback_error: str | None = None
+    if play:
+        from newton.voice.playback import PlaybackError, play_wav
+
+        try:
+            play_wav(out)
+            played = True
+        except (PlaybackError, FileNotFoundError) as e:
+            playback_error = str(e)
+
     payload = {
         "persona": persona_id,
         "language": language,
@@ -1779,7 +1799,10 @@ def voice_tts(
         "out": str(out),
         "duration_seconds": result.duration_seconds,
         "sample_rate": result.sample_rate,
+        "played": played,
     }
+    if playback_error is not None:
+        payload["playback_error"] = playback_error
     if as_json:
         click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
         return
@@ -1791,6 +1814,13 @@ def voice_tts(
         f"[bold]output[/bold] : {out}  ({result.duration_seconds:.2f}s @ "
         f"{result.sample_rate}Hz)"
     )
+    if play:
+        if played:
+            console.print("[bold]played[/bold] : yes")
+        else:
+            console.print(
+                f"[bold]played[/bold] : [red]failed[/red]  ({playback_error})"
+            )
 
 
 # ── voice id (step 5.9 — Resemblyzer enrollment / verification) ────────
