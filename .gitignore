@@ -149,3 +149,6 @@ config/*.local.toml
 *.bak.*
 data/qdrant/
 data/tei/
+
+# Claude Code task prompts (working docs, not source)
+claude_code_prompt_*.md
