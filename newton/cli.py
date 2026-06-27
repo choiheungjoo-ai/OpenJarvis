@@ -1688,6 +1688,16 @@ def voice_samples_show(persona_id: str, as_json: bool) -> None:
     default=False,
     help="Play the resulting WAV through the system audio output after writing.",
 )
+@click.option(
+    "--stream/--no-stream",
+    "stream",
+    default=False,
+    help=(
+        "Sentence-stream synthesis: split text into sentences, synthesize each "
+        "and (with --play) start speaking after sentence 1 while the next is "
+        "still synthesizing. Drops time-to-first-audio on long replies."
+    ),
+)
 @click.option("--json", "as_json", is_flag=True)
 def voice_tts(
     persona_id: str,
@@ -1695,6 +1705,7 @@ def voice_tts(
     text: str,
     out_path: str | None,
     play: bool,
+    stream: bool,
     as_json: bool,
 ) -> None:
     """Synthesize ``text`` for ``persona_id`` + ``language`` and write a WAV.
@@ -1748,6 +1759,20 @@ def voice_tts(
 
     # 3) Now resolve (engine constructed + cached) and synthesize.
     resolved = router.resolve(persona_id, language)
+
+    if stream:
+        _voice_tts_stream(
+            text=text,
+            language=language,
+            persona_id=persona_id,
+            voice_ref=voice_ref,
+            resolved=resolved,
+            out_path=out_path,
+            play=play,
+            as_json=as_json,
+        )
+        return
+
     try:
         result = resolved.engine.synthesize(
             text,
@@ -1800,6 +1825,7 @@ def voice_tts(
         "duration_seconds": result.duration_seconds,
         "sample_rate": result.sample_rate,
         "played": played,
+        "streamed": False,
     }
     if playback_error is not None:
         payload["playback_error"] = playback_error
@@ -1821,6 +1847,135 @@ def voice_tts(
             console.print(
                 f"[bold]played[/bold] : [red]failed[/red]  ({playback_error})"
             )
+
+
+def _voice_tts_stream(
+    *,
+    text: str,
+    language: str,
+    persona_id: str,
+    voice_ref: Path | None,
+    resolved,
+    out_path: str | None,
+    play: bool,
+    as_json: bool,
+) -> None:
+    """Sentence-streamed synth+play branch of ``voice tts``.
+
+    Split → background-worker synth-ahead-by-one → main-thread blocking
+    playback. The combined per-sentence audio is concatenated and
+    written to ``--out`` so the artifact contract matches the
+    non-stream path (single WAV on disk).
+    """
+    import time
+
+    import numpy as np
+
+    from newton.voice.sentences import split_sentences
+    from newton.voice.streaming import stream_synth_and_play
+    from newton.voice.tts.base import TTSResult, save_wav
+
+    sentences = split_sentences(text, language)
+    if not sentences:
+        click.secho(
+            "error: --text is empty after sentence splitting.", fg="red", err=True
+        )
+        sys.exit(1)
+
+    try:
+        stream_res = stream_synth_and_play(
+            sentences,
+            engine=resolved.engine,
+            language=language,
+            voice_reference=voice_ref,
+            ref_text=resolved.route.ref_text,
+            play=play,
+        )
+    except ModuleNotFoundError as e:
+        click.secho(
+            f"error: {e.name} not installed. See "
+            f"docs/newton/voice-cloning-verification.md for install steps.",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+    except FileNotFoundError as e:
+        click.secho(
+            f"error: {e}. Fetch the model weights — see "
+            f"docs/newton/voice-cloning-verification.md.",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Concatenate whatever clips made it through (full success → all
+    # sentences; partial failure → up to the failing one). Save so the
+    # caller always has a durable artifact for the audio already produced.
+    out_str = out_path or f"/tmp/newton-voice-{int(time.time())}.wav"
+    out = Path(out_str)
+    combined: TTSResult | None = None
+    if stream_res.audios:
+        combined = TTSResult(
+            audio=np.concatenate(stream_res.audios),
+            sample_rate=stream_res.sample_rate,
+        )
+        save_wav(combined, out)
+
+    played = (
+        play and stream_res.error is None and stream_res.played_count == len(sentences)
+    )
+
+    payload: dict[str, object] = {
+        "persona": persona_id,
+        "language": language,
+        "engine": resolved.engine.name,
+        "voice_reference": str(voice_ref) if voice_ref else None,
+        "out": str(out) if combined is not None else None,
+        "duration_seconds": combined.duration_seconds if combined else 0.0,
+        "sample_rate": combined.sample_rate if combined else 0,
+        "played": played,
+        "streamed": True,
+        "sentences": len(sentences),
+    }
+    if stream_res.error is not None:
+        payload["failed_sentence"] = stream_res.failed_sentence
+        payload["error_phase"] = stream_res.error_phase
+        payload["error"] = str(stream_res.error)
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        console = Console()
+        console.print(f"[bold]engine[/bold]   : {resolved.engine.name}")
+        console.print(f"[bold]sample[/bold]   : {voice_ref}")
+        if combined is not None:
+            console.print(
+                f"[bold]output[/bold]   : {out}  "
+                f"({combined.duration_seconds:.2f}s @ {combined.sample_rate}Hz)"
+            )
+        console.print(
+            f"[bold]streamed[/bold] : {len(sentences)} sentences "
+            f"(synthesized {len(stream_res.audios)})"
+        )
+        if play:
+            if played:
+                console.print("[bold]played[/bold]   : yes")
+            else:
+                console.print(
+                    f"[bold]played[/bold]   : [red]failed[/red]  "
+                    f"(sentence {stream_res.failed_sentence}: {stream_res.error})"
+                )
+        if stream_res.error_phase == "synth":
+            console.print(
+                f"[bold]synth[/bold]    : [red]failed at sentence "
+                f"{stream_res.failed_sentence}[/red]  ({stream_res.error})"
+            )
+
+    # Synth failure means the user's text wasn't fully spoken; signal
+    # that with exit 1 (matches the non-stream synth-error behaviour).
+    # Playback failure leaves a complete WAV on disk, so exit 0.
+    if stream_res.error_phase == "synth":
+        sys.exit(1)
 
 
 # ── voice id (step 5.9 — Resemblyzer enrollment / verification) ────────

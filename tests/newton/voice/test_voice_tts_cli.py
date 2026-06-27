@@ -414,3 +414,241 @@ def test_voice_tts_default_out_path_is_temp(tmp_path, monkeypatch):
     assert out.name.startswith("newton-voice-")
     assert out.exists()
     out.unlink()
+
+
+# ── --stream sentence-streamed playback ─────────────────────────────────
+
+
+class _RecordingEngine(TTS):
+    """TTS stub that records every synth call and emits a 0.1 s tone."""
+
+    name = "qwen3_tts_jarvis"
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def synthesize(
+        self,
+        text: str,
+        *,
+        language: str | None = None,
+        voice_reference=None,
+        ref_text: str | None = None,
+    ) -> TTSResult:
+        self.calls.append(
+            {
+                "text": text,
+                "language": language,
+                "voice_reference": (
+                    str(voice_reference) if voice_reference is not None else None
+                ),
+                "ref_text": ref_text,
+            }
+        )
+        # 0.1 s of a constant tone — short and cheap, distinct per call
+        # only in length, which is enough for "did we concatenate them"
+        # checks downstream.
+        n = 2205  # 0.1s @ 22050 Hz
+        return TTSResult(audio=np.full(n, 0.1, dtype=np.float32), sample_rate=22050)
+
+
+def test_voice_tts_stream_play_synths_and_plays_sentences_in_order(
+    tmp_path, monkeypatch
+):
+    cfg_dir, voices = _isolated_voice_dir(tmp_path)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    engine = _RecordingEngine()
+    monkeypatch.setattr(
+        "newton.voice.tts.router.default_engine_factory", lambda _name: engine
+    )
+
+    # Capture every play_wav call: monkeypatch where streaming.py looks
+    # it up (lazy import inside stream_synth_and_play).
+    played_paths: list[Path] = []
+
+    def _capture_play(path, **_kwargs):
+        played_paths.append(Path(path))
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _capture_play)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "ko",
+            "--text",
+            "First. Second. Third.",
+            "--out",
+            str(out),
+            "--play",
+            "--stream",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    # Engine got the three sentences in order.
+    assert [c["text"] for c in engine.calls] == ["First.", "Second.", "Third."]
+
+    # play_wav called three times in order (one per sentence).
+    assert len(played_paths) == 3
+    # Indices encoded into the temp filename keep playback order observable.
+    suffixes = [p.name for p in played_paths]
+    assert all(name.startswith("newton-tts-stream-") for name in suffixes)
+    indices = [int(name.rsplit("-", 1)[-1].split(".")[0]) for name in suffixes]
+    assert indices == sorted(indices) == [0, 1, 2]
+
+    payload = json.loads(result.output)
+    assert payload["streamed"] is True
+    assert payload["sentences"] == 3
+    assert payload["played"] is True
+    assert payload["out"] == str(out)
+    assert payload["sample_rate"] == 22050
+    # Combined WAV exists and has roughly 0.3 s of audio (3 × 0.1 s).
+    assert out.exists()
+    with wave.open(str(out), "rb") as wf:
+        assert wf.getframerate() == 22050
+        assert wf.getnframes() == 2205 * 3
+
+
+def test_voice_tts_stream_without_play_still_synths_and_writes_combined(
+    tmp_path, monkeypatch
+):
+    cfg_dir, voices = _isolated_voice_dir(tmp_path)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    engine = _RecordingEngine()
+    monkeypatch.setattr(
+        "newton.voice.tts.router.default_engine_factory", lambda _name: engine
+    )
+
+    def _explode(*args, **kwargs):
+        raise AssertionError("play_wav must not be called without --play")
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _explode)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "ko",
+            "--text",
+            "안녕하세요. 잘 지내요?",
+            "--out",
+            str(out),
+            "--stream",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    payload = json.loads(result.output)
+    assert payload["streamed"] is True
+    assert payload["sentences"] == 2
+    assert payload["played"] is False
+    assert "error" not in payload
+    assert [c["text"] for c in engine.calls] == ["안녕하세요.", "잘 지내요?"]
+    assert out.exists()
+
+
+def test_voice_tts_no_stream_default_is_unchanged(tmp_path, monkeypatch):
+    cfg_dir, voices = _isolated_voice_dir(tmp_path)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.voice.tts.router.default_engine_factory", _stub_factory)
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "ko",
+            "--text",
+            "First. Second.",
+            "--out",
+            str(out),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    # Default --no-stream goes through the single-shot path: engine
+    # sees the full text in one call, no sentence count reported.
+    assert payload["streamed"] is False
+    assert "sentences" not in payload
+    last = _StubEngine.last_call
+    assert last is not None
+    assert last["text"] == "First. Second."
+
+
+def test_voice_tts_stream_play_failure_keeps_partial_wav(tmp_path, monkeypatch):
+    cfg_dir, voices = _isolated_voice_dir(tmp_path)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    engine = _RecordingEngine()
+    monkeypatch.setattr(
+        "newton.voice.tts.router.default_engine_factory", lambda _name: engine
+    )
+
+    from newton.voice.playback import PlaybackError
+
+    call_count = {"n": 0}
+
+    def _fail_on_second(_path, **_kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise PlaybackError("simulated playback failure")
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _fail_on_second)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "ko",
+            "--text",
+            "First. Second. Third.",
+            "--out",
+            str(out),
+            "--play",
+            "--stream",
+            "--json",
+        ],
+    )
+    # Playback failure mid-stream is non-fatal — the WAV is durable.
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["streamed"] is True
+    assert payload["played"] is False
+    assert payload["failed_sentence"] == 2
+    assert payload["error_phase"] == "playback"
+    assert "simulated playback failure" in payload["error"]
+    # Combined WAV still written with whatever was synthesized before failure.
+    assert out.exists()
