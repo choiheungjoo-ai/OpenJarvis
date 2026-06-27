@@ -305,6 +305,34 @@ class VoiceIdConfig(BaseModel):
         return v
 
 
+class FillerConfig(BaseModel):
+    """Per-persona, per-language, per-category filler-phrase overrides.
+
+    The structure is intentionally permissive — a nested dict so YAML
+    overrides read naturally::
+
+        fillers:
+          phrases:
+            jarvis:
+              en:
+                acknowledge:
+                  - "Of course, sir."
+
+    The hard-coded JARVIS defaults live in :mod:`newton.voice.fillers`
+    (``DEFAULT_FILLERS``); ``phrases`` here only carries the user's
+    overrides. Merging — per-category list replacement, default
+    categories preserved when not overridden — happens in
+    :func:`newton.voice.fillers.merge_filler_phrases`, so the config
+    module stays a pure shape definition.
+
+    Setting a category to an empty list disables it for that
+    (persona, language) — the cache builder will skip it and ``pick``
+    will report it as not cached.
+    """
+
+    phrases: dict[str, dict[str, dict[str, list[str]]]] = Field(default_factory=dict)
+
+
 class VoiceConfig(BaseModel):
     """Top-level voice configuration."""
 
@@ -314,6 +342,7 @@ class VoiceConfig(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     session_lock: SessionLockConfig = Field(default_factory=SessionLockConfig)
     voice_id: VoiceIdConfig = Field(default_factory=VoiceIdConfig)
+    fillers: FillerConfig = Field(default_factory=FillerConfig)
 
 
 class VoiceConfigError(RuntimeError):
@@ -368,6 +397,7 @@ __all__ = [
     "CLAP_MODES",
     "AudioConfig",
     "ClapConfig",
+    "FillerConfig",
     "SessionLockConfig",
     "Stage1Config",
     "TTSConfig",

@@ -1698,6 +1698,17 @@ def voice_samples_show(persona_id: str, as_json: bool) -> None:
         "still synthesizing. Drops time-to-first-audio on long replies."
     ),
 )
+@click.option(
+    "--filler",
+    "filler_category",
+    default=None,
+    help=(
+        "Play a pre-cached filler clip (category, e.g. 'acknowledge') instantly "
+        "while the main content synthesizes, then stream the main content "
+        "gaplessly. Requires --play; the filler must be cached "
+        "(see `newton voice fillers build`)."
+    ),
+)
 @click.option("--json", "as_json", is_flag=True)
 def voice_tts(
     persona_id: str,
@@ -1706,6 +1717,7 @@ def voice_tts(
     out_path: str | None,
     play: bool,
     stream: bool,
+    filler_category: str | None,
     as_json: bool,
 ) -> None:
     """Synthesize ``text`` for ``persona_id`` + ``language`` and write a WAV.
@@ -1760,7 +1772,11 @@ def voice_tts(
     # 3) Now resolve (engine constructed + cached) and synthesize.
     resolved = router.resolve(persona_id, language)
 
-    if stream:
+    # --filler routes through the streaming branch because that's where
+    # the filler + main-content handoff lives. With --no-play it still
+    # surfaces the filler-skip reason in JSON; with --play it actually
+    # masks the synth wait.
+    if stream or filler_category is not None:
         _voice_tts_stream(
             text=text,
             language=language,
@@ -1770,6 +1786,9 @@ def voice_tts(
             out_path=out_path,
             play=play,
             as_json=as_json,
+            cfg=cfg,
+            voice_root=voice_root,
+            filler_category=filler_category,
         )
         return
 
@@ -1859,6 +1878,9 @@ def _voice_tts_stream(
     out_path: str | None,
     play: bool,
     as_json: bool,
+    cfg=None,
+    voice_root: Path | None = None,
+    filler_category: str | None = None,
 ) -> None:
     """Sentence-streamed synth+play branch of ``voice tts``.
 
@@ -1866,11 +1888,18 @@ def _voice_tts_stream(
     playback. The combined per-sentence audio is concatenated and
     written to ``--out`` so the artifact contract matches the
     non-stream path (single WAV on disk).
+
+    When ``filler_category`` is set and ``play`` is True the function
+    looks up a cached filler clip via :class:`FillerLibrary` and asks
+    :func:`stream_synth_and_play` to play it first; the worker
+    synthesizes sentence 1 in the background during that playback, so
+    the handoff is gapless.
     """
     import time
 
     import numpy as np
 
+    from newton.voice.fillers import FillerLibrary, FillerNotCachedError, pick
     from newton.voice.sentences import split_sentences
     from newton.voice.streaming import stream_synth_and_play
     from newton.voice.tts.base import TTSResult, save_wav
@@ -1882,6 +1911,24 @@ def _voice_tts_stream(
         )
         sys.exit(1)
 
+    intro_path: Path | None = None
+    filler_played = False
+    filler_skipped_reason: str | None = None
+    if filler_category is not None:
+        if not play:
+            # Asked for filler without --play. Note + ignore — the
+            # combined WAV stays main-only.
+            filler_skipped_reason = "no-play"
+        elif cfg is not None and voice_root is not None:
+            library = FillerLibrary.from_config(cfg, voice_root)
+            try:
+                intro_path = pick(library, persona_id, language, filler_category)
+            except FillerNotCachedError as e:
+                # Spec: do NOT error out — fall back to plain stream
+                # and report the reason in JSON.
+                filler_skipped_reason = str(e)
+                intro_path = None
+
     try:
         stream_res = stream_synth_and_play(
             sentences,
@@ -1890,6 +1937,7 @@ def _voice_tts_stream(
             voice_reference=voice_ref,
             ref_text=resolved.route.ref_text,
             play=play,
+            intro_path=intro_path,
         )
     except ModuleNotFoundError as e:
         click.secho(
@@ -1925,6 +1973,7 @@ def _voice_tts_stream(
         play and stream_res.error is None and stream_res.played_count == len(sentences)
     )
 
+    filler_played = stream_res.intro_played
     payload: dict[str, object] = {
         "persona": persona_id,
         "language": language,
@@ -1937,6 +1986,11 @@ def _voice_tts_stream(
         "streamed": True,
         "sentences": len(sentences),
     }
+    if filler_category is not None:
+        payload["filler_category"] = filler_category
+        payload["filler_played"] = filler_played
+        if filler_skipped_reason is not None:
+            payload["filler_skipped_reason"] = filler_skipped_reason
     if stream_res.error is not None:
         payload["failed_sentence"] = stream_res.failed_sentence
         payload["error_phase"] = stream_res.error_phase
@@ -1976,6 +2030,172 @@ def _voice_tts_stream(
     # Playback failure leaves a complete WAV on disk, so exit 0.
     if stream_res.error_phase == "synth":
         sys.exit(1)
+
+
+# ── voice fillers (pre-synthesized instant-reply clips) ────────────────
+
+
+@voice.group("fillers")
+def voice_fillers() -> None:
+    """Build / inspect pre-synthesized filler clips ("Of course, sir...")."""
+
+
+@voice_fillers.command("build")
+@click.option(
+    "--persona",
+    "persona_id",
+    default="jarvis",
+    help="Persona to build fillers for. Defaults to 'jarvis'.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Re-synthesize even when the cached WAV already exists.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def voice_fillers_build(persona_id: str, force: bool, as_json: bool) -> None:
+    """Synthesize every missing filler phrase for ``persona_id``."""
+    from newton.voice.config import load_voice_config
+    from newton.voice.fillers import FillerLibrary, FillerSynthSpec, build_cache
+    from newton.voice.samples import find_referenced_sample
+    from newton.voice.tts.router import (
+        TTSRouter,
+        TTSRoutingError,
+        make_engine_factory,
+    )
+
+    cfg = load_voice_config()
+    voice_root = _voice_root_path()
+    library = FillerLibrary.from_config(cfg, voice_root)
+    router = TTSRouter(
+        config=cfg.tts,
+        engine_factory=make_engine_factory(cfg.tts),
+        voice_root_override=voice_root,
+    )
+
+    def resolver(language: str) -> FillerSynthSpec:
+        try:
+            resolved = router.resolve(persona_id, language)
+        except TTSRoutingError as e:
+            raise click.ClickException(str(e)) from e
+        ref_path: Path | None = None
+        if resolved.route.voice_reference is not None:
+            ref_path = find_referenced_sample(
+                resolved.route.voice_reference, voice_root
+            )
+            if ref_path is None:
+                raise click.ClickException(
+                    f"voice sample for {persona_id}/{language} not found "
+                    f"at {voice_root / resolved.route.voice_reference}. "
+                    f"Record it (step 5.4) or update voice.yaml."
+                )
+        return FillerSynthSpec(
+            engine=resolved.engine,
+            voice_reference=ref_path,
+            ref_text=resolved.route.ref_text,
+        )
+
+    if persona_id not in library.personas():
+        msg = (
+            f"no filler phrases configured for persona {persona_id!r}. "
+            f"Available: {library.personas()}"
+        )
+        if as_json:
+            click.echo(json.dumps({"error": msg}))
+        else:
+            click.secho(f"error: {msg}", fg="red", err=True)
+        sys.exit(1)
+
+    try:
+        report = build_cache(library, persona_id, resolver, force=force)
+    except ModuleNotFoundError as e:
+        click.secho(
+            f"error: {e.name} not installed. See "
+            f"docs/newton/voice-cloning-verification.md for install steps.",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    payload = {
+        "persona": report.persona,
+        "synthesized": report.synthesized,
+        "skipped_existing": report.skipped_existing,
+        "failed": report.failed,
+        "languages": report.languages,
+        "cache_root": str(voice_root / persona_id / "fillers"),
+    }
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    console.print(f"[bold]persona[/bold]      : {report.persona}")
+    console.print(f"[bold]cache root[/bold]   : {payload['cache_root']}")
+    console.print(f"[bold]synthesized[/bold]  : {report.synthesized}")
+    console.print(f"[bold]skipped[/bold]      : {report.skipped_existing}")
+    if report.failed:
+        console.print(f"[bold]failed[/bold]       : [red]{report.failed}[/red]")
+
+
+@voice_fillers.command("list")
+@click.option(
+    "--persona",
+    "persona_id",
+    default=None,
+    help="Filter to one persona. Defaults to all configured personas.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def voice_fillers_list(persona_id: str | None, as_json: bool) -> None:
+    """Show configured filler categories + per-category cached counts."""
+    from newton.voice.config import load_voice_config
+    from newton.voice.fillers import FillerLibrary
+
+    cfg = load_voice_config()
+    voice_root = _voice_root_path()
+    library = FillerLibrary.from_config(cfg, voice_root)
+
+    personas = [persona_id] if persona_id is not None else library.personas()
+    summary: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+    for p in personas:
+        if p not in library.personas():
+            continue
+        summary[p] = {}
+        for lang in library.languages(p):
+            summary[p][lang] = {}
+            for cat in library.categories(p, lang):
+                phrases = library.phrases(p, lang, cat)
+                cached = len(library.cached_paths(p, lang, cat))
+                summary[p][lang][cat] = {
+                    "configured": len(phrases),
+                    "cached": cached,
+                }
+
+    if as_json:
+        click.echo(json.dumps(summary, indent=2, ensure_ascii=False))
+        return
+
+    console = Console()
+    if not summary:
+        if persona_id is not None:
+            console.print(f"[dim]no filler phrases configured for {persona_id!r}[/dim]")
+        else:
+            console.print("[dim]no filler phrases configured[/dim]")
+        return
+    for p, langs in summary.items():
+        console.print(f"[bold]{p}[/bold]")
+        for lang, cats in langs.items():
+            console.print(f"  {lang}")
+            for cat, counts in cats.items():
+                marker = (
+                    "[green]"
+                    if counts["cached"] == counts["configured"]
+                    else "[yellow]"
+                )
+                console.print(
+                    f"    {cat:22s} {marker}{counts['cached']}/{counts['configured']}"
+                    f"[/]"
+                )
 
 
 # ── voice id (step 5.9 — Resemblyzer enrollment / verification) ────────

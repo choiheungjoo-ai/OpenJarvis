@@ -601,6 +601,346 @@ def test_voice_tts_no_stream_default_is_unchanged(tmp_path, monkeypatch):
     assert last["text"] == "First. Second."
 
 
+# ── --filler instant-reply + main-content streaming ─────────────────────
+
+
+def _seed_filler_clip(
+    voices: Path,
+    *,
+    persona: str = "jarvis",
+    language: str = "en",
+    category: str = "acknowledge",
+    phrase: str = "Of course, sir.",
+    sample_rate: int = 22050,
+    n_samples: int = 4410,  # 0.2s @ 22050 → distinct length vs main 0.1s
+) -> Path:
+    """Place a fake pre-synthesized filler WAV in the cache."""
+    import hashlib
+
+    digest = hashlib.sha1(phrase.encode("utf-8")).hexdigest()[:12]
+    cache_dir = voices / persona / "fillers" / language / category
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = cache_dir / f"{digest}.wav"
+    # Constant 0.05 amplitude → distinct from main's 0.1 amplitude.
+    samples = np.full(n_samples, 0.05, dtype=np.float32)
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes((samples * 32767).astype(np.int16).tobytes())
+    return path
+
+
+def _seed_filler_config(tmp_path: Path, voices: Path, phrase: str) -> Path:
+    """voice.yaml that ships a single configured phrase for jarvis/en/acknowledge.
+
+    Default JARVIS list still applies elsewhere; this isolates the test
+    from the long default list so we know exactly which clip is on disk.
+    """
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir(exist_ok=True)
+    (cfg_dir / "voice.yaml").write_text(
+        "tts:\n"
+        f"  voice_root: {voices}\n"
+        "  backend: local\n"
+        "  routes:\n"
+        "    - persona: jarvis\n"
+        "      language: ko\n"
+        "      engine: qwen3_tts_jarvis\n"
+        "      voice_reference: jarvis/samples/ko/ko-001.wav\n"
+        "    - persona: jarvis\n"
+        "      language: en\n"
+        "      engine: qwen3_tts_jarvis\n"
+        "      voice_reference: jarvis/samples/ko/ko-001.wav\n"
+        "fillers:\n"
+        "  phrases:\n"
+        "    jarvis:\n"
+        "      en:\n"
+        f'        acknowledge: ["{phrase}"]\n'
+    )
+    return cfg_dir
+
+
+def test_voice_tts_filler_plays_cached_clip_then_main_sentences(tmp_path, monkeypatch):
+    voices = tmp_path / "voices"
+    _write_wav(voices / "jarvis/samples/ko/ko-001.wav", duration=1.5)
+    phrase = "Of course, sir."
+    filler_wav = _seed_filler_clip(voices, phrase=phrase)
+    cfg_dir = _seed_filler_config(tmp_path, voices, phrase)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    engine = _RecordingEngine()
+    monkeypatch.setattr(
+        "newton.voice.tts.router.default_engine_factory", lambda _name: engine
+    )
+
+    played_paths: list[Path] = []
+
+    def _capture_play(path, **_kwargs):
+        played_paths.append(Path(path))
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _capture_play)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "en",
+            "--text",
+            "Alpha. Beta.",
+            "--out",
+            str(out),
+            "--play",
+            "--filler",
+            "acknowledge",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    # 1) Filler was played FIRST, then main sentences in order.
+    assert len(played_paths) == 3
+    assert played_paths[0] == filler_wav
+    suffixes = [p.name for p in played_paths[1:]]
+    assert all(name.startswith("newton-tts-stream-") for name in suffixes)
+    indices = [int(name.rsplit("-", 1)[-1].split(".")[0]) for name in suffixes]
+    assert indices == [0, 1]
+
+    # 2) Engine synthesized exactly the main sentences (NOT the filler).
+    assert [c["text"] for c in engine.calls] == ["Alpha.", "Beta."]
+
+    # 3) Combined WAV = filler + 2 sentence clips (0.2s + 2×0.1s = 0.4s @ 22050).
+    assert out.exists()
+    with wave.open(str(out), "rb") as wf:
+        assert wf.getframerate() == 22050
+        assert wf.getnframes() == 4410 + 2205 * 2
+
+    # 4) JSON payload reports filler fields.
+    payload = json.loads(result.output)
+    assert payload["streamed"] is True
+    assert payload["played"] is True
+    assert payload["filler_category"] == "acknowledge"
+    assert payload["filler_played"] is True
+    assert "filler_skipped_reason" not in payload
+    assert payload["sentences"] == 2
+
+
+def test_voice_tts_filler_missing_cache_falls_back_to_stream(tmp_path, monkeypatch):
+    voices = tmp_path / "voices"
+    _write_wav(voices / "jarvis/samples/ko/ko-001.wav", duration=1.5)
+    # NO _seed_filler_clip — cache is empty.
+    cfg_dir = _seed_filler_config(tmp_path, voices, "Of course, sir.")
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    engine = _RecordingEngine()
+    monkeypatch.setattr(
+        "newton.voice.tts.router.default_engine_factory", lambda _name: engine
+    )
+
+    played_paths: list[Path] = []
+
+    def _capture_play(path, **_kwargs):
+        played_paths.append(Path(path))
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _capture_play)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "en",
+            "--text",
+            "Alpha. Beta.",
+            "--out",
+            str(out),
+            "--play",
+            "--filler",
+            "acknowledge",
+            "--json",
+        ],
+    )
+    # Spec: missing-cache must NOT error out.
+    assert result.exit_code == 0, result.output
+
+    # Only the two main sentences played; no filler.
+    assert len(played_paths) == 2
+    assert [c["text"] for c in engine.calls] == ["Alpha.", "Beta."]
+
+    payload = json.loads(result.output)
+    assert payload["filler_category"] == "acknowledge"
+    assert payload["filler_played"] is False
+    assert "no cached filler clip" in payload["filler_skipped_reason"]
+
+
+def test_voice_tts_filler_without_play_is_ignored(tmp_path, monkeypatch):
+    voices = tmp_path / "voices"
+    _write_wav(voices / "jarvis/samples/ko/ko-001.wav", duration=1.5)
+    phrase = "Of course, sir."
+    _seed_filler_clip(voices, phrase=phrase)
+    cfg_dir = _seed_filler_config(tmp_path, voices, phrase)
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    engine = _RecordingEngine()
+    monkeypatch.setattr(
+        "newton.voice.tts.router.default_engine_factory", lambda _name: engine
+    )
+
+    def _explode(*args, **kwargs):
+        raise AssertionError("play_wav must not be called without --play")
+
+    monkeypatch.setattr("newton.voice.playback.play_wav", _explode)
+
+    out = tmp_path / "out.wav"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "voice",
+            "tts",
+            "--persona",
+            "jarvis",
+            "--lang",
+            "en",
+            "--text",
+            "Alpha.",
+            "--out",
+            str(out),
+            "--filler",
+            "acknowledge",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["filler_category"] == "acknowledge"
+    assert payload["filler_played"] is False
+    assert payload["filler_skipped_reason"] == "no-play"
+    # Combined WAV has ONLY the one main sentence (no filler prefix).
+    with wave.open(str(out), "rb") as wf:
+        assert wf.getnframes() == 2205
+
+
+# ── voice fillers build / list ───────────────────────────────────────────
+
+
+def test_voice_fillers_build_synthesizes_each_phrase(tmp_path, monkeypatch):
+    """Use a synthetic persona so DEFAULT_FILLERS doesn't add extras."""
+    voices = tmp_path / "voices"
+    _write_wav(voices / "tjarvis/samples/ko/ko-001.wav", duration=1.5)
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    (cfg_dir / "voice.yaml").write_text(
+        "tts:\n"
+        f"  voice_root: {voices}\n"
+        "  backend: local\n"
+        "  routes:\n"
+        "    - persona: tjarvis\n"
+        "      language: en\n"
+        "      engine: qwen3_tts_jarvis\n"
+        "      voice_reference: tjarvis/samples/ko/ko-001.wav\n"
+        "fillers:\n"
+        "  phrases:\n"
+        "    tjarvis:\n"
+        "      en:\n"
+        '        acknowledge: ["alpha", "beta"]\n'
+    )
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    engine = _RecordingEngine()
+    monkeypatch.setattr(
+        "newton.voice.tts.router.default_engine_factory", lambda _name: engine
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["voice", "fillers", "build", "--persona", "tjarvis", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["persona"] == "tjarvis"
+    assert payload["synthesized"] == 2
+    assert payload["skipped_existing"] == 0
+    assert payload["failed"] == 0
+    assert "en" in payload["languages"]
+
+    # Re-run is idempotent.
+    result2 = runner.invoke(
+        cli, ["voice", "fillers", "build", "--persona", "tjarvis", "--json"]
+    )
+    assert result2.exit_code == 0, result2.output
+    payload2 = json.loads(result2.output)
+    assert payload2["synthesized"] == 0
+    assert payload2["skipped_existing"] == 2
+
+
+def test_voice_fillers_list_reports_configured_vs_cached_counts(tmp_path, monkeypatch):
+    voices = tmp_path / "voices"
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    (cfg_dir / "voice.yaml").write_text(
+        "tts:\n"
+        f"  voice_root: {voices}\n"
+        "  backend: local\n"
+        "fillers:\n"
+        "  phrases:\n"
+        "    jarvis:\n"
+        "      en:\n"
+        '        acknowledge: ["alpha", "beta", "gamma"]\n'
+    )
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    # Pre-cache just one of the three phrases.
+    _seed_filler_clip(voices, phrase="beta")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["voice", "fillers", "list", "--persona", "jarvis", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["jarvis"]["en"]["acknowledge"] == {
+        "configured": 3,
+        "cached": 1,
+    }
+
+
+def test_voice_fillers_build_unknown_persona_errors(tmp_path, monkeypatch):
+    voices = tmp_path / "voices"
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    (cfg_dir / "voice.yaml").write_text(
+        f"tts:\n  voice_root: {voices}\n  backend: local\n"
+    )
+    monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setattr("newton.cli._voice_root_path", lambda: voices)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["voice", "fillers", "build", "--persona", "ghost", "--json"]
+    )
+    assert result.exit_code == 1
+    assert "no filler phrases configured" in result.output
+
+
 def test_voice_tts_stream_play_failure_keeps_partial_wav(tmp_path, monkeypatch):
     cfg_dir, voices = _isolated_voice_dir(tmp_path)
     monkeypatch.setenv("NEWTON_CONFIG_DIR", str(cfg_dir))

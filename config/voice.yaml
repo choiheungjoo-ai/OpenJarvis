@@ -104,6 +104,30 @@ session_lock:
   # and the next Stage-1 wake-word / clap starts fresh.
   timeout_seconds: 30
 
+# ── Filler phrases — instant-reply clips ───────────────────────────────
+#
+# Pre-synthesized clips that play instantly while the main answer is
+# still synthesizing → ~zero perceived latency.
+#
+# Sensible JARVIS defaults (EN + KO) ship in code
+# (newton.voice.fillers.DEFAULT_FILLERS). This block OVERRIDES them
+# per-category: writing a category here replaces the default list for
+# that (persona, language). Setting a list to ``[]`` disables the
+# category. Untouched categories keep their defaults.
+#
+# Build the on-disk cache after editing:
+#     newton voice fillers build --persona jarvis
+#
+# Cache layout: data/voices/<persona>/fillers/<lang>/<category>/<sha1>.wav
+#
+# fillers:
+#   phrases:
+#     jarvis:
+#       en:
+#         acknowledge:
+#           - "Of course, sir. Allow me a moment to gather precisely what you need."
+#           - "Right away, sir. I'm pulling the relevant pieces together as we speak."
+
 # ── Voice ID enrollment + recognition (block 5 step 5.9) ───────────────
 #
 # Resemblyzer-backed speaker embeddings. The backend stays out of

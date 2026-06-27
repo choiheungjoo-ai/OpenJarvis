@@ -28,6 +28,7 @@ import queue
 import tempfile
 import threading
 import uuid
+import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -58,6 +59,7 @@ class StreamResult:
     failed_sentence: int | None = None  # 1-indexed for human-friendly reporting
     error: BaseException | None = None
     error_phase: str | None = None  # "synth" | "playback" | None on success
+    intro_played: bool = False
 
     @property
     def total_duration_seconds(self) -> float:
@@ -76,6 +78,7 @@ def stream_synth_and_play(
     play: bool,
     play_fn: Callable[[Path], None] | None = None,
     tmp_dir: Path | None = None,
+    intro_path: Path | None = None,
 ) -> StreamResult:
     """Drive the synth-ahead-by-one pipeline over ``sentences``.
 
@@ -97,6 +100,13 @@ def stream_synth_and_play(
     tmp_dir:
         Where per-sentence temp WAVs are written. Defaults to
         :func:`tempfile.gettempdir`.
+    intro_path:
+        Optional pre-synthesized "filler" WAV to play *first*. Played
+        in the main thread while the synth worker produces sentence 1
+        in the background — that's the overlap that drops perceived
+        latency to ~0. The clip's samples are prepended to
+        :attr:`StreamResult.audios` so the combined WAV the caller
+        writes matches what was actually spoken.
     """
     if not sentences:
         return StreamResult()
@@ -134,6 +144,32 @@ def stream_synth_and_play(
 
     result = StreamResult()
     token = uuid.uuid4().hex[:8]
+
+    # Play the filler intro (if any) while the worker synthesizes
+    # sentence 1 in the background. The clip's samples are prepended to
+    # ``audios`` regardless of playback outcome so the combined WAV
+    # always reflects what was actually meant to be heard.
+    if intro_path is not None:
+        try:
+            intro_audio, intro_sr = _read_wav_float32(intro_path)
+        except (FileNotFoundError, wave.Error) as exc:
+            result.error = exc
+            result.error_phase = "playback"
+            stop.set()
+            t.join(timeout=5.0)
+            return result
+        result.audios.append(intro_audio)
+        result.sample_rate = intro_sr
+        if play and play_fn is not None:
+            try:
+                play_fn(intro_path)
+            except BaseException as exc:  # noqa: BLE001 — surface as playback error
+                result.error = exc
+                result.error_phase = "playback"
+                stop.set()
+                t.join(timeout=5.0)
+                return result
+            result.intro_played = True
 
     try:
         while True:
@@ -195,6 +231,26 @@ def _put_quietly(q: queue.Queue, item: tuple[str, int, object]) -> None:
         q.put(item, timeout=5.0)
     except queue.Full:
         return
+
+
+def _read_wav_float32(path: Path) -> tuple[np.ndarray, int]:
+    """Load a mono 16-bit PCM WAV as float32 in [-1, 1].
+
+    Matches :func:`save_wav`'s output format; used to prepend the
+    filler intro into the streamed combined WAV. Stdlib only —
+    Strategy D stays intact.
+    """
+    with wave.open(str(path), "rb") as wf:
+        sr = wf.getframerate()
+        n = wf.getnframes()
+        sampwidth = wf.getsampwidth()
+        frames = wf.readframes(n)
+    if sampwidth != 2:
+        raise wave.Error(
+            f"unexpected sample width {sampwidth} (want 2 / 16-bit) in {path}"
+        )
+    pcm = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    return pcm, sr
 
 
 __all__ = ["StreamResult", "stream_synth_and_play"]
