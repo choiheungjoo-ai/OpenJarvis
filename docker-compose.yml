@@ -60,3 +60,34 @@ services:
               capabilities: [gpu]
               device_ids:
                 - nvidia.com/gpu=all
+  tts:
+    build: ./deploy/docker/tts
+    image: newton-tts:dev
+    container_name: newton-tts
+    restart: unless-stopped
+    # JARVIS fine-tuned + Base clone models, served over HTTP. Newton core
+    # never imports torch; all GPU work happens here (Strategy D), same as tei.
+    ports:
+      - "${TTS_PORT:-8081}:80"          # 8080 is tei; tts on 8081
+    volumes:
+      # JARVIS v1 + Base live under data/models; mount read-only.
+      - ${TTS_MODEL_DIR:-./data/models}:/models:ro
+    environment:
+      - JARVIS_MODEL_DIR=/models/qwen3-tts-jarvis/v1-31samples-10ep
+      - BASE_MODEL_DIR=/models/qwen3-tts/Qwen3-TTS-12Hz-1.7B-Base
+      - TTS_DEVICE=cuda:0
+    healthcheck:
+      # /health returns 200 only after BOTH models finish loading.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/80' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 180s     # first start loads two ~4GB models into VRAM
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: cdi
+              capabilities: [gpu]
+              device_ids:
+                - nvidia.com/gpu=all
