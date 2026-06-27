@@ -61,8 +61,13 @@ services:
               device_ids:
                 - nvidia.com/gpu=all
   tts:
-    build: ./deploy/docker/tts
+    # Build is explicit via scripts/newton/tts-up.sh (docker compose build tts).
+    # Keeping `build:` active here makes `compose up tts` re-check/rebuild and
+    # can hang after a Docker storage reset; pull_policy:never uses the local
+    # image only (build it first with tts-up.sh).
+    # build: ./deploy/docker/tts
     image: newton-tts:dev
+    pull_policy: never
     container_name: newton-tts
     restart: unless-stopped
     # JARVIS fine-tuned + Base clone models, served over HTTP. Newton core
