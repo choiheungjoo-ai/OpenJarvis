@@ -103,12 +103,13 @@ class TTSRouter:
 
 
 def default_engine_factory(name: str) -> TTS:
-    """Construct the engine identified by ``name``.
+    """Construct the engine identified by ``name`` against the local
+    in-process adapters.
 
-    Used by production. Tests pass their own factory so they don't
-    actually load qwen-tts / chatterbox. The factory is the single
-    place that knows about concrete engine classes; the router stays
-    string-keyed.
+    Kept for tests and offline dev; production wires through
+    :func:`make_engine_factory` so the ``tts.backend`` knob in
+    ``config/voice.yaml`` can swap the qwen3 engines for the HTTP
+    backend.
 
     Two Qwen3-TTS flavours ship by default:
 
@@ -138,9 +139,46 @@ def default_engine_factory(name: str) -> TTS:
     raise ValueError(f"unknown TTS engine: {name!r}")
 
 
+def make_engine_factory(tts_config: TTSConfig) -> Callable[[str], TTS]:
+    """Build a router engine factory bound to the configured backend.
+
+    With ``tts.backend == "remote"`` (the production default), the
+    ``qwen3_tts_*`` engines route through
+    :class:`newton.voice.tts.http_backend.RemoteQwen3TTS` against
+    ``tts.url`` — Strategy D, no torch in the Newton process. With
+    ``"local"``, they fall back to :func:`default_engine_factory` so
+    offline dev and the unit-test path keep working.
+
+    ``chatterbox`` always resolves to the in-process adapter; it has no
+    HTTP service today.
+    """
+
+    def factory(name: str) -> TTS:
+        if name in ("qwen3_tts_base", "qwen3_tts_jarvis"):
+            if tts_config.backend == "remote":
+                # Lazy import — the HTTP backend pulls httpx, which is
+                # cheap but still not worth dragging in for the local path.
+                from newton.voice.tts.http_backend import (  # noqa: PLC0415
+                    RemoteQwen3TTS,
+                )
+
+                speaker = "jarvis" if name == "qwen3_tts_jarvis" else None
+                return RemoteQwen3TTS(
+                    name=name,
+                    speaker=speaker,
+                    url=tts_config.url,
+                    timeout_s=tts_config.timeout_s,
+                )
+            return default_engine_factory(name)
+        return default_engine_factory(name)
+
+    return factory
+
+
 __all__ = [
     "TTSRouteResolution",
     "TTSRouter",
     "TTSRoutingError",
     "default_engine_factory",
+    "make_engine_factory",
 ]

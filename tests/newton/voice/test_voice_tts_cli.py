@@ -36,7 +36,13 @@ def _write_wav(path: Path, *, duration: float = 1.0, sample_rate: int = 16000) -
 
 
 def _isolated_voice_dir(tmp_path: Path) -> tuple[Path, Path]:
-    """Build a config dir + voice dir with one jarvis/ko sample."""
+    """Build a config dir + voice dir with one jarvis/ko sample.
+
+    ``backend: local`` is set so the CLI exercises the injectable
+    ``default_engine_factory`` seam these tests monkeypatch. The
+    ``remote`` default would build a ``RemoteQwen3TTS`` instead and
+    bypass the stub.
+    """
     voices = tmp_path / "voices"
     _write_wav(voices / "jarvis/samples/ko/ko-001.wav", duration=1.5)
     cfg_dir = tmp_path / "cfg"
@@ -44,6 +50,7 @@ def _isolated_voice_dir(tmp_path: Path) -> tuple[Path, Path]:
     (cfg_dir / "voice.yaml").write_text(
         "tts:\n"
         f"  voice_root: {voices}\n"
+        "  backend: local\n"
         "  routes:\n"
         "    - persona: jarvis\n"
         "      language: ko\n"
@@ -170,6 +177,7 @@ def test_voice_tts_missing_sample_fails_before_loader_runs(tmp_path, monkeypatch
     (cfg_dir / "voice.yaml").write_text(
         "tts:\n"
         f"  voice_root: {voices}\n"
+        "  backend: local\n"
         "  routes:\n"
         "    - persona: jarvis\n"
         "      language: ko\n"

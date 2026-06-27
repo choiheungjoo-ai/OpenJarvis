@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -193,9 +193,24 @@ class TTSRouteConfig(BaseModel):
 
 
 class TTSConfig(BaseModel):
-    """Voice routing + sample-root for the TTS layer (step 5.5)."""
+    """Voice routing + sample-root for the TTS layer (step 5.5).
+
+    ``backend`` selects how the ``qwen3_tts_*`` engines run:
+
+    * ``remote`` (default) — talk to the ``newton-tts`` Docker service
+      over HTTP (``newton/voice/tts/http_backend.py``). Strategy D: the
+      Newton process stays torch-free; GPU work lives in the container.
+    * ``local`` — construct the in-process :class:`Qwen3TTS` adapter
+      (needs ``qwen-tts`` + GPU). Used by offline dev and unit tests.
+
+    ``url`` / ``timeout_s`` apply only to ``remote``; defaults match the
+    service deployed by ``deploy/docker/tts/compose.yaml``.
+    """
 
     voice_root: str = "data/voices"
+    backend: Literal["local", "remote"] = "remote"
+    url: str = "http://localhost:8081"
+    timeout_s: float = 60.0
     routes: list[TTSRouteConfig] = Field(
         default_factory=lambda: [
             # Butler — Base model clone. ref_text must be filled in

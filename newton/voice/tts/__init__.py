@@ -22,6 +22,7 @@ from newton.voice.tts.router import (
     TTSRouteResolution,
     TTSRoutingError,
     default_engine_factory,
+    make_engine_factory,
 )
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "TTSRouter",
     "TTSRoutingError",
     "default_engine_factory",
+    "make_engine_factory",
     "save_wav",
 ]

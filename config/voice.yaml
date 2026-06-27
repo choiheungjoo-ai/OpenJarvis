@@ -58,10 +58,21 @@ stage1:
 #   * qwen3_tts_base   (clone)        — Base Qwen3-TTS model; needs a
 #     ``voice_reference`` clip AND its exact ``ref_text`` transcript.
 #
+# ``backend`` controls how the ``qwen3_tts_*`` engines run:
+#   * remote (default) — talk to the newton-tts Docker service over HTTP.
+#                        Strategy D: the Newton core stays torch-free.
+#   * local            — construct the in-process Qwen3TTS adapter (needs
+#                        qwen-tts + GPU). Used by offline dev / unit tests.
+# ``url`` / ``timeout_s`` apply only to ``remote`` and match the
+# service deployed by deploy/docker/tts/compose.yaml.
+#
 # Voice references are relative to ``voice_root`` and may not exist
 # yet (samples come from step 5.4 / voice.local.yaml).
 tts:
   voice_root: data/voices
+  backend: remote
+  url: http://localhost:8081
+  timeout_s: 60.0
   routes:
     - persona: butler
       language: any

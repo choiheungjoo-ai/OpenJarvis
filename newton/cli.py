@@ -1705,14 +1705,14 @@ def voice_tts(
     from newton.voice.tts.router import (
         TTSRouter,
         TTSRoutingError,
-        default_engine_factory,
+        make_engine_factory,
     )
 
     cfg = load_voice_config()
     voice_root = _voice_root_path()
     router = TTSRouter(
         config=cfg.tts,
-        engine_factory=default_engine_factory,
+        engine_factory=make_engine_factory(cfg.tts),
         voice_root_override=voice_root,
     )
 
